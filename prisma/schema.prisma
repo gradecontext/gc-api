@@ -1,0 +1,227 @@
+// ContextGrade Decision Intelligence Schema
+// This schema implements the decision trace store and context graph foundation
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Organizations represent your customers (B2B SaaS companies using ContextGrade)
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  domain    String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  users     User[]
+  companies Company[]
+  decisions Decision[]
+  policies  Policy[]
+
+  @@map("organizations")
+}
+
+// Users are humans making decisions within organizations
+model User {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  email          String
+  role           UserRole @default(VIEWER)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization          Organization               @relation(fields: [organizationId], references: [id])
+  decisionsMade         Decision[]                 @relation("DecisionMaker")
+  decisionOverrides     DecisionHumanOverride[]
+  decisionOutcomes      DecisionOutcome[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  APPROVER
+  VIEWER
+}
+
+// Companies are the subject of decisions (your customer's customer)
+model Company {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  domain         String?
+  industry       String?
+  country        String?
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  deals        Deal[]
+  decisions    Decision[]
+
+  @@map("companies")
+}
+
+// Deals anchor decisions to revenue context
+model Deal {
+  id                String   @id @default(uuid()) @db.Uuid
+  companyId         String   @map("company_id") @db.Uuid
+  crmDealId         String?  @map("crm_deal_id")
+  amount            Decimal? @db.Decimal(19, 2)
+  currency          String?
+  discountRequested Decimal? @map("discount_requested") @db.Decimal(5, 2)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  company   Company    @relation(fields: [companyId], references: [id])
+  decisions Decision[]
+
+  @@map("deals")
+}
+
+// Decisions are immutable events - the atomic unit of truth
+model Decision {
+  id                   String              @id @default(uuid()) @db.Uuid
+  organizationId       String              @map("organization_id") @db.Uuid
+  companyId            String              @map("company_id") @db.Uuid
+  dealId               String?             @map("deal_id") @db.Uuid
+  decisionType         DecisionType        @map("decision_type")
+  status               DecisionStatus      @default(PROPOSED)
+  recommendedAction    String?             @map("recommended_action")
+  recommendedConfidence DecisionConfidence? @map("recommended_confidence")
+  finalAction          String?             @map("final_action")
+  decidedBy            String?             @map("decided_by") @db.Uuid
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  decidedAt            DateTime?           @map("decided_at") @db.Timestamptz(6)
+
+  organization         Organization              @relation(fields: [organizationId], references: [id])
+  company              Company                   @relation(fields: [companyId], references: [id])
+  deal                 Deal?                     @relation(fields: [dealId], references: [id])
+  decisionMaker        User?                     @relation("DecisionMaker", fields: [decidedBy], references: [id])
+  contextSnapshot      DecisionContextSnapshot?
+  humanOverrides       DecisionHumanOverride[]
+  outcomes             DecisionOutcome[]
+  linksAsSource        DecisionLink[]            @relation("SourceDecision")
+  linksAsTarget        DecisionLink[]            @relation("TargetDecision")
+  externalSources      ExternalSource[]
+
+  @@map("decisions")
+}
+
+enum DecisionType {
+  DISCOUNT
+  ONBOARDING
+  PAYMENT_TERMS
+}
+
+enum DecisionStatus {
+  PROPOSED
+  APPROVED
+  REJECTED
+  OVERRIDDEN
+}
+
+enum DecisionConfidence {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// Context snapshots capture the world state at decision time (time travel)
+model DecisionContextSnapshot {
+  id          String   @id @default(uuid()) @db.Uuid
+  decisionId  String   @unique @map("decision_id") @db.Uuid
+  signals     Json     // Raw signals used by the agent
+  policies    Json?    // Policies evaluated (even informal ones)
+  agentRationale String? @map("agent_rationale") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@map("decision_context_snapshots")
+}
+
+// Human overrides capture judgment (gold for learning)
+model DecisionHumanOverride {
+  id            String   @id @default(uuid()) @db.Uuid
+  decisionId    String   @map("decision_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  overrideReason String? @map("override_reason") @db.Text
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@map("decision_human_overrides")
+}
+
+// Decision outcomes track what actually happened (for learning)
+model DecisionOutcome {
+  id          String         @id @default(uuid()) @db.Uuid
+  decisionId  String         @map("decision_id") @db.Uuid
+  userId      String?        @map("user_id") @db.Uuid
+  outcomeType OutcomeType    @map("outcome_type")
+  notes       String?        @db.Text
+  recordedAt  DateTime       @default(now()) @map("recorded_at") @db.Timestamptz(6)
+
+  decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [userId], references: [id])
+
+  @@map("decision_outcomes")
+}
+
+enum OutcomeType {
+  PAID_ON_TIME
+  CHURNED
+  FRAUD
+  EXPANDED
+}
+
+// Decision links form the foundation of the context graph (precedent tracking)
+model DecisionLink {
+  id               String             @id @default(uuid()) @db.Uuid
+  fromDecisionId   String             @map("from_decision_id") @db.Uuid
+  toDecisionId     String             @map("to_decision_id") @db.Uuid
+  relationshipType RelationshipType   @map("relationship_type")
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  sourceDecision Decision @relation("SourceDecision", fields: [fromDecisionId], references: [id], onDelete: Cascade)
+  targetDecision Decision @relation("TargetDecision", fields: [toDecisionId], references: [id], onDelete: Cascade)
+
+  @@unique([fromDecisionId, toDecisionId])
+  @@map("decision_links")
+}
+
+enum RelationshipType {
+  PRECEDENT
+  SIMILAR_CASE
+  POLICY_EXCEPTION
+}
+
+// External sources track signal provenance (auditability)
+model ExternalSource {
+  id         String   @id @default(uuid()) @db.Uuid
+  decisionId String   @map("decision_id") @db.Uuid
+  sourceType String   @map("source_type")
+  sourceUrl  String?  @map("source_url")
+  extractedAt DateTime @default(now()) @map("extracted_at") @db.Timestamptz(6)
+
+  decision Decision @relation(fields: [decisionId], references: [id])
+
+  @@map("external_sources")
+}
+
+// Policies structure decision rules (even informal ones)
+model Policy {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  name           String
+  description    String?  @db.Text
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@map("policies")
+}
