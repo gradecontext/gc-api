@@ -22,13 +22,14 @@ export async function decisionsRoutes(fastify: FastifyInstance) {
       tags: ['decisions'],
       body: {
         type: 'object',
-        required: ['organization_id', 'company', 'decision_type'],
+        required: ['tenant_id', 'subject_company', 'decision_type'],
         properties: {
-          organization_id: { type: 'string', format: 'uuid' },
-          company: {
+          tenant_id: { type: 'string', format: 'uuid' },
+          subject_company: {
             type: 'object',
-            required: ['name'],
+            required: ['external_id', 'name'],
             properties: {
+              external_id: { type: 'string' },
               name: { type: 'string' },
               domain: { type: 'string' },
               industry: { type: 'string' },
@@ -46,8 +47,9 @@ export async function decisionsRoutes(fastify: FastifyInstance) {
           },
           decision_type: {
             type: 'string',
-            enum: ['DISCOUNT', 'ONBOARDING', 'PAYMENT_TERMS'],
+            enum: ['DISCOUNT', 'ONBOARDING', 'PAYMENT_TERMS', 'CREDIT_EXTENSION', 'PARTNERSHIP', 'RENEWAL', 'ESCALATION', 'CUSTOM'],
           },
+          context_key: { type: 'string' },
         },
       },
       response: {
@@ -76,7 +78,7 @@ export async function decisionsRoutes(fastify: FastifyInstance) {
         properties: {
           action: {
             type: 'string',
-            enum: ['approve', 'reject', 'override'],
+            enum: ['approve', 'reject', 'override', 'escalate'],
           },
           note: { type: 'string' },
           final_action: { type: 'string' },

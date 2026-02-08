@@ -5,6 +5,7 @@
  * Handles graceful shutdown
  */
 
+import "dotenv/config";
 import { buildApp } from './app';
 import { env } from './config/env';
 import { logger } from './utils/logger';

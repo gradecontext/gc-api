@@ -7,21 +7,25 @@
  */
 
 import { prisma } from '../../db/client';
-import { DecisionType, DecisionStatus, DecisionConfidence } from '@prisma/client';
+import { DecisionType, DecisionStatus, DecisionConfidence, RelationshipType } from '@prisma/client';
 import { logger } from '../../utils/logger';
 import { Prisma } from '@prisma/client';
 
 export interface DecisionCreateData {
-  organizationId: string;
-  companyId: string;
+  tenantId: string;
+  subjectCompanyId: string;
   dealId?: string;
+  contextId?: string;
   decisionType: DecisionType;
   recommendedAction?: string;
   recommendedConfidence?: DecisionConfidence;
+  suggestedConditions?: unknown;
   contextSnapshot: {
     signals: unknown;
     policies?: unknown;
     agentRationale?: string;
+    agentModel?: string;
+    processingTimeMs?: number;
   };
 }
 
@@ -38,32 +42,37 @@ export interface DecisionUpdateData {
  */
 export async function createDecision(data: DecisionCreateData) {
   logger.debug('Creating decision', {
-    organizationId: data.organizationId,
-    companyId: data.companyId,
+    tenantId: data.tenantId,
+    subjectCompanyId: data.subjectCompanyId,
     decisionType: data.decisionType,
   });
 
   return await prisma.decision.create({
     data: {
-      organizationId: data.organizationId,
-      companyId: data.companyId,
+      tenantId: data.tenantId,
+      subjectCompanyId: data.subjectCompanyId,
       dealId: data.dealId,
+      contextId: data.contextId,
       decisionType: data.decisionType,
       recommendedAction: data.recommendedAction,
       recommendedConfidence: data.recommendedConfidence,
+      suggestedConditions: data.suggestedConditions ? (data.suggestedConditions as Prisma.InputJsonValue) : undefined,
       status: 'PROPOSED',
       contextSnapshot: {
         create: {
           signals: data.contextSnapshot.signals as Prisma.InputJsonValue,
           policies: data.contextSnapshot.policies ? (data.contextSnapshot.policies as Prisma.InputJsonValue) : undefined,
           agentRationale: data.contextSnapshot.agentRationale || null,
+          agentModel: data.contextSnapshot.agentModel || null,
+          processingTimeMs: data.contextSnapshot.processingTimeMs || null,
         },
       },
     },
     include: {
       contextSnapshot: true,
-      company: true,
+      subjectCompany: true,
       deal: true,
+      context: true,
     },
   });
 }
@@ -74,25 +83,27 @@ export async function createDecision(data: DecisionCreateData) {
  */
 export async function findDecisionById(
   decisionId: string,
-  organizationId?: string
+  tenantId?: string
 ) {
-  const where: { id: string; organizationId?: string } = { id: decisionId };
-  if (organizationId) {
-    where.organizationId = organizationId;
+  const where: { id: string; tenantId?: string } = { id: decisionId };
+  if (tenantId) {
+    where.tenantId = tenantId;
   }
 
   return await prisma.decision.findFirst({
     where,
     include: {
       contextSnapshot: true,
-      company: true,
+      subjectCompany: true,
       deal: true,
+      context: true,
       humanOverrides: {
         include: {
           user: {
             select: {
               id: true,
               email: true,
+              name: true,
             },
           },
         },
@@ -148,6 +159,7 @@ export async function updateDecisionStatus(
         data: {
           decisionId,
           userId: overrideUserId,
+          overrideAction: 'MODIFIED',
           overrideReason,
         },
       });
@@ -158,50 +170,43 @@ export async function updateDecisionStatus(
 }
 
 /**
- * Find or create company
- * Ensures company exists before creating decision
+ * Find or create subject company
+ * Uses externalId for idempotent upsert within a tenant
  */
-export async function findOrCreateCompany(
-  organizationId: string,
+export async function findOrCreateSubjectCompany(
+  tenantId: string,
   companyData: {
+    externalId: string;
     name: string;
     domain?: string;
     industry?: string;
     country?: string;
+    metadata?: unknown;
   }
 ) {
-  // Try to find existing company by domain first, then by name
-  if (companyData.domain) {
-    const existing = await prisma.company.findFirst({
-      where: {
-        organizationId,
-        domain: companyData.domain,
+  // Upsert by tenantId + externalId (the unique constraint)
+  return await prisma.subjectCompany.upsert({
+    where: {
+      tenantId_externalId: {
+        tenantId,
+        externalId: companyData.externalId,
       },
-    });
-
-    if (existing) {
-      // Update if new information provided
-      if (companyData.industry || companyData.country) {
-        return await prisma.company.update({
-          where: { id: existing.id },
-          data: {
-            industry: companyData.industry || existing.industry,
-            country: companyData.country || existing.country,
-          },
-        });
-      }
-      return existing;
-    }
-  }
-
-  // Create new company
-  return await prisma.company.create({
-    data: {
-      organizationId,
+    },
+    update: {
+      name: companyData.name,
+      domain: companyData.domain || undefined,
+      industry: companyData.industry || undefined,
+      country: companyData.country || undefined,
+      metadata: companyData.metadata ? (companyData.metadata as Prisma.InputJsonValue) : undefined,
+    },
+    create: {
+      tenantId,
+      externalId: companyData.externalId,
       name: companyData.name,
       domain: companyData.domain || null,
       industry: companyData.industry || null,
       country: companyData.country || null,
+      metadata: companyData.metadata ? (companyData.metadata as Prisma.InputJsonValue) : undefined,
     },
   });
 }
@@ -211,7 +216,7 @@ export async function findOrCreateCompany(
  * Creates deal record if deal information provided
  */
 export async function findOrCreateDeal(
-  companyId: string,
+  subjectCompanyId: string,
   dealData?: {
     crm_deal_id?: string;
     amount?: number;
@@ -227,7 +232,7 @@ export async function findOrCreateDeal(
   if (dealData.crm_deal_id) {
     const existing = await prisma.deal.findFirst({
       where: {
-        companyId,
+        subjectCompanyId,
         crmDealId: dealData.crm_deal_id,
       },
     });
@@ -240,7 +245,7 @@ export async function findOrCreateDeal(
   // Create new deal
   return await prisma.deal.create({
     data: {
-      companyId,
+      subjectCompanyId,
       crmDealId: dealData.crm_deal_id || null,
       amount: dealData.amount ? dealData.amount : null,
       currency: dealData.currency || null,
@@ -257,7 +262,9 @@ export async function findOrCreateDeal(
 export async function linkDecisions(
   fromDecisionId: string,
   toDecisionId: string,
-  relationshipType: 'PRECEDENT' | 'SIMILAR_CASE' | 'POLICY_EXCEPTION'
+  relationshipType: RelationshipType,
+  confidence?: number,
+  notes?: string
 ) {
   try {
     return await prisma.decisionLink.create({
@@ -265,6 +272,8 @@ export async function linkDecisions(
         fromDecisionId,
         toDecisionId,
         relationshipType,
+        confidence: confidence ?? null,
+        notes: notes ?? null,
       },
     });
   } catch (error) {

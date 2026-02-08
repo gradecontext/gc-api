@@ -9,7 +9,7 @@ import { env } from '../config/env';
 import { logger } from '../utils/logger';
 
 export interface AuthenticatedRequest extends FastifyRequest {
-  organizationId?: string;
+  tenantId?: string;
   userId?: string;
 }
 

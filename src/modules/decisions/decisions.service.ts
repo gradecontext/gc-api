@@ -16,7 +16,7 @@ import {
   createDecision,
   findDecisionById,
   updateDecisionStatus,
-  findOrCreateCompany,
+  findOrCreateSubjectCompany,
   findOrCreateDeal,
   DecisionCreateData,
   DecisionUpdateData,
@@ -28,7 +28,7 @@ import { DecisionStatus, DecisionConfidence } from '@prisma/client';
  * Process a new decision request
  * 
  * This is the main orchestration function:
- * 1. Creates/finds company and deal
+ * 1. Creates/finds subject company and deal
  * 2. Gathers context signals
  * 3. Generates AI recommendation
  * 4. Persists decision with context snapshot
@@ -37,34 +37,43 @@ export async function processDecisionCreation(
   input: CreateDecisionInput
 ): Promise<DecisionResponse> {
   logger.info('Processing decision creation', {
-    organizationId: input.organization_id,
-    companyName: input.company.name,
+    tenantId: input.tenant_id,
+    companyName: input.subject_company.name,
     decisionType: input.decision_type,
   });
 
-  // Step 1: Ensure company exists
-  const company = await findOrCreateCompany(input.organization_id, input.company);
+  // Step 1: Ensure subject company exists (upsert by externalId)
+  const subjectCompany = await findOrCreateSubjectCompany(input.tenant_id, {
+    externalId: input.subject_company.external_id,
+    name: input.subject_company.name,
+    domain: input.subject_company.domain,
+    industry: input.subject_company.industry,
+    country: input.subject_company.country,
+    metadata: input.subject_company.metadata,
+  });
 
   // Step 2: Create deal if provided
   const deal = input.deal
-    ? await findOrCreateDeal(company.id, input.deal)
+    ? await findOrCreateDeal(subjectCompany.id, input.deal)
     : null;
 
   // Step 3: Gather context signals
+  const startTime = Date.now();
   const signals = await gatherContext({
-    name: input.company.name,
-    domain: input.company.domain,
-    industry: input.company.industry,
-    country: input.company.country,
+    name: input.subject_company.name,
+    domain: input.subject_company.domain,
+    industry: input.subject_company.industry,
+    country: input.subject_company.country,
   });
+  const processingTimeMs = Date.now() - startTime;
 
   // Step 4: Generate AI recommendation
   const recommendation = await generateDecisionRecommendation(
     {
-      name: input.company.name,
-      domain: input.company.domain,
-      industry: input.company.industry,
-      country: input.company.country,
+      name: input.subject_company.name,
+      domain: input.subject_company.domain,
+      industry: input.subject_company.industry,
+      country: input.subject_company.country,
     },
     signals,
     input.decision_type,
@@ -77,15 +86,17 @@ export async function processDecisionCreation(
 
   // Step 6: Create decision with context snapshot
   const decisionData: DecisionCreateData = {
-    organizationId: input.organization_id,
-    companyId: company.id,
+    tenantId: input.tenant_id,
+    subjectCompanyId: subjectCompany.id,
     dealId: deal?.id,
     decisionType: input.decision_type,
     recommendedAction,
     recommendedConfidence,
+    suggestedConditions: recommendation.suggested_conditions,
     contextSnapshot: {
       signals: signals as unknown, // Store as JSON
       agentRationale: recommendation.rationale.join('\n'),
+      processingTimeMs,
     },
   };
 
@@ -145,6 +156,10 @@ export async function processDecisionReview(
       status = 'OVERRIDDEN';
       finalAction = input.final_action || 'overridden';
       break;
+    case 'escalate':
+      status = 'ESCALATED';
+      finalAction = 'escalated';
+      break;
     default:
       throw new Error(`Invalid action: ${input.action}`);
   }
@@ -185,9 +200,9 @@ export async function processDecisionReview(
  */
 export async function getDecisionById(
   decisionId: string,
-  organizationId?: string
+  tenantId?: string
 ): Promise<DecisionResponse | null> {
-  const decision = await findDecisionById(decisionId, organizationId);
+  const decision = await findDecisionById(decisionId, tenantId);
   
   if (!decision) {
     return null;
@@ -225,13 +240,16 @@ function formatDecisionResponse(
 
   return {
     id: decision.id,
-    organization_id: decision.organizationId,
-    company_id: decision.companyId,
+    tenant_id: decision.tenantId,
+    subject_company_id: decision.subjectCompanyId,
     deal_id: decision.dealId || undefined,
+    context_key: decision.context?.key || undefined,
     decision_type: decision.decisionType,
     status: decision.status,
+    urgency: decision.urgency,
     recommended_action: decision.recommendedAction || undefined,
     recommended_confidence: decision.recommendedConfidence || undefined,
+    suggested_conditions: decision.suggestedConditions || undefined,
     final_action: decision.finalAction || undefined,
     decided_by: decision.decidedBy || undefined,
     created_at: decision.createdAt,
@@ -242,10 +260,12 @@ function formatDecisionResponse(
           signals: decision.contextSnapshot.signals,
           policies: decision.contextSnapshot.policies || undefined,
           agent_rationale: decision.contextSnapshot.agentRationale || undefined,
+          agent_model: decision.contextSnapshot.agentModel || undefined,
         }
       : undefined,
     overrides: decision.humanOverrides.map((o) => ({
       user_id: o.userId,
+      override_action: o.overrideAction,
       override_reason: o.overrideReason || undefined,
       created_at: o.createdAt,
     })),
@@ -253,6 +273,17 @@ function formatDecisionResponse(
       id: l.id,
       relationship_type: l.relationshipType,
       target_decision_id: l.toDecisionId,
+      confidence: l.confidence ? Number(l.confidence) : undefined,
     })),
+    subject_company: decision.subjectCompany
+      ? {
+          id: decision.subjectCompany.id,
+          external_id: decision.subjectCompany.externalId,
+          name: decision.subjectCompany.name,
+          domain: decision.subjectCompany.domain || undefined,
+          industry: decision.subjectCompany.industry || undefined,
+          country: decision.subjectCompany.country || undefined,
+        }
+      : undefined,
   };
 }

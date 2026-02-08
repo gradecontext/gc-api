@@ -17,12 +17,14 @@ import { AuthenticatedRequest } from '../../middleware/auth.middleware';
 
 // Validation schemas
 const createDecisionSchema = z.object({
-  organization_id: z.string().uuid(),
-  company: z.object({
+  tenant_id: z.string().uuid(),
+  subject_company: z.object({
+    external_id: z.string().min(1),
     name: z.string().min(1),
     domain: z.string().url().optional().or(z.string().min(1).optional()),
     industry: z.string().optional(),
     country: z.string().optional(),
+    metadata: z.record(z.unknown()).optional(),
   }),
   deal: z
     .object({
@@ -32,11 +34,21 @@ const createDecisionSchema = z.object({
       discount_requested: z.number().min(0).max(100).optional(),
     })
     .optional(),
-  decision_type: z.enum(['DISCOUNT', 'ONBOARDING', 'PAYMENT_TERMS']),
+  decision_type: z.enum([
+    'DISCOUNT',
+    'ONBOARDING',
+    'PAYMENT_TERMS',
+    'CREDIT_EXTENSION',
+    'PARTNERSHIP',
+    'RENEWAL',
+    'ESCALATION',
+    'CUSTOM',
+  ]),
+  context_key: z.string().optional(),
 });
 
 const reviewDecisionSchema = z.object({
-  action: z.enum(['approve', 'reject', 'override']),
+  action: z.enum(['approve', 'reject', 'override', 'escalate']),
   note: z.string().optional(),
   final_action: z.string().optional(),
 });
@@ -54,8 +66,9 @@ export async function createDecisionHandler(
     const body = createDecisionSchema.parse(request.body);
 
     logger.info('Decision creation request received', {
-      organizationId: body.organization_id,
-      companyName: body.company.name,
+      tenantId: body.tenant_id,
+      companyName: body.subject_company.name,
+      externalId: body.subject_company.external_id,
     });
 
     // Process decision creation (async orchestration)
@@ -137,12 +150,12 @@ export async function getDecisionHandler(
   try {
     const decisionId = request.params.id;
 
-    // TODO: Extract organization ID from auth for multi-tenancy isolation
-    const organizationId = (request as AuthenticatedRequest).organizationId;
+    // TODO: Extract tenant ID from auth for multi-tenancy isolation
+    const tenantId = (request as AuthenticatedRequest).tenantId;
 
     logger.debug('Fetching decision', { decisionId });
 
-    const decision = await getDecisionById(decisionId, organizationId);
+    const decision = await getDecisionById(decisionId, tenantId);
 
     if (!decision) {
       reply.code(404).send({

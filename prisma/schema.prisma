@@ -1,5 +1,6 @@
-// ContextGrade Decision Intelligence Schema
-// This schema implements the decision trace store and context graph foundation
+// ContextGrade — Decision Intelligence Schema
+// Multi-tenant decision trace store and context graph foundation
+// "Decision intelligence for onboarding, pricing, and trust."
 
 generator client {
   provider = "prisma-client-js"
@@ -10,102 +11,229 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Organizations represent your customers (B2B SaaS companies using ContextGrade)
-model Organization {
-  id        String   @id @default(uuid()) @db.Uuid
-  name      String
-  domain    String?
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+// ============================================================
+// CORE ENTITIES
+// ============================================================
 
-  users     User[]
-  companies Company[]
-  decisions Decision[]
-  policies  Policy[]
+// Tenants are ContextGrade's direct customers — the B2B companies
+// that integrate ContextGrade into their onboarding/billing workflows.
+// e.g., "ACME Corp" (GPU seller using ContextGrade)
+model Tenant {
+  id            String     @id @default(uuid()) @db.Uuid
+  name          String
+  slug          String     @unique
+  domain        String?
+  apiKey        String?    @unique @map("api_key")
+  webhookSecret String?    @map("webhook_secret")
+  plan          TenantPlan @default(FREE)
+  settings      Json?      @default("{}") // Tenant-level config (thresholds, preferences)
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  @@map("organizations")
+  users            User[]
+  subjectCompanies SubjectCompany[]
+  decisions        Decision[]
+  policies         Policy[]
+  decisionContexts DecisionContext[]
+  webhookEvents    WebhookEvent[]
+
+  @@index([slug])
+  @@map("tenants")
 }
 
-// Users are humans making decisions within organizations
+enum TenantPlan {
+  FREE
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+
+  @@map("tenant_plan")
+}
+
+// Users are humans within tenant organizations who make, review, or view decisions.
 model User {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  email          String
-  role           UserRole @default(VIEWER)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  email     String
+  name      String?
+  role      UserRole @default(VIEWER)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization          Organization               @relation(fields: [organizationId], references: [id])
-  decisionsMade         Decision[]                 @relation("DecisionMaker")
-  decisionOverrides     DecisionHumanOverride[]
-  decisionOutcomes      DecisionOutcome[]
+  tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  decisionsMade     Decision[]              @relation("DecisionMaker")
+  decisionOverrides DecisionHumanOverride[]
+  decisionOutcomes  DecisionOutcome[]
 
+  @@unique([tenantId, email])
+  @@index([tenantId])
   @@map("users")
 }
 
 enum UserRole {
+  OWNER
   ADMIN
   APPROVER
   VIEWER
+
+  @@map("user_role")
 }
 
-// Companies are the subject of decisions (your customer's customer)
-model Company {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  name           String
-  domain         String?
-  industry       String?
-  country        String?
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+// SubjectCompanies are the entities being evaluated — the tenant's clients/prospects.
+// e.g., "ABC Corp" (a company wanting to buy GPUs from ACME Corp)
+// Every webhook payload references a SubjectCompany via externalId.
+model SubjectCompany {
+  id         String       @id @default(uuid()) @db.Uuid
+  tenantId   String       @map("tenant_id") @db.Uuid
+  externalId String       @map("external_id") // Tenant's CRM/system identifier for this company
+  name       String
+  domain     String?
+  industry   String?
+  country    String?
+  size       CompanySize?
+  metadata   Json?        @default("{}") // Flexible extra data from CRM (address, tags, etc.)
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  deals        Deal[]
-  decisions    Decision[]
-
-  @@map("companies")
-}
-
-// Deals anchor decisions to revenue context
-model Deal {
-  id                String   @id @default(uuid()) @db.Uuid
-  companyId         String   @map("company_id") @db.Uuid
-  crmDealId         String?  @map("crm_deal_id")
-  amount            Decimal? @db.Decimal(19, 2)
-  currency          String?
-  discountRequested Decimal? @map("discount_requested") @db.Decimal(5, 2)
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  company   Company    @relation(fields: [companyId], references: [id])
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deals     Deal[]
   decisions Decision[]
 
+  @@unique([tenantId, externalId])
+  @@index([tenantId])
+  @@index([externalId])
+  @@index([tenantId, domain])
+  @@map("subject_companies")
+}
+
+enum CompanySize {
+  MICRO // 1-10 employees
+  SMALL // 11-50 employees
+  MEDIUM // 51-200 employees
+  LARGE // 201-1000 employees
+  ENTERPRISE // 1001-5000 employees
+  MEGA // 5000+ employees
+
+  @@map("company_size")
+}
+
+// Deals anchor decisions to revenue context (optional but recommended).
+model Deal {
+  id                String     @id @default(uuid()) @db.Uuid
+  subjectCompanyId  String     @map("subject_company_id") @db.Uuid
+  crmDealId         String?    @map("crm_deal_id") // Salesforce / HubSpot ID
+  amount            Decimal?   @db.Decimal(19, 2)
+  currency          String?    @default("USD") @db.VarChar(3)
+  discountRequested Decimal?   @map("discount_requested") @db.Decimal(5, 2)
+  stage             DealStage? @default(OPEN)
+  createdAt         DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  subjectCompany SubjectCompany @relation(fields: [subjectCompanyId], references: [id], onDelete: Cascade)
+  decisions      Decision[]
+
+  @@index([subjectCompanyId])
+  @@index([crmDealId])
   @@map("deals")
 }
 
-// Decisions are immutable events - the atomic unit of truth
+enum DealStage {
+  OPEN
+  WON
+  LOST
+  STALLED
+
+  @@map("deal_stage")
+}
+
+// ============================================================
+// DECISION CONTEXT DOMAINS
+// ============================================================
+
+// DecisionContext categorizes the domain a decision belongs to.
+// Tenant-scoped so each customer defines their own contexts.
+// e.g., "payment_onboarding", "payment_renewal", "hiring", "coding_practices"
+//
+// Long-term: contexts accumulate decision traces that can be exported
+// as skills.md knowledge files for foresight-driven decisions.
+model DecisionContext {
+  id          String          @id @default(uuid()) @db.Uuid
+  tenantId    String          @map("tenant_id") @db.Uuid
+  key         String // Machine-friendly slug: "payment_onboarding"
+  name        String // Human-friendly label: "Payment Onboarding"
+  description String?         @db.Text
+  category    ContextCategory @default(CUSTOM)
+  active      Boolean         @default(true)
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  decisions Decision[]
+
+  @@unique([tenantId, key])
+  @@index([tenantId])
+  @@map("decision_contexts")
+}
+
+enum ContextCategory {
+  PAYMENT
+  ONBOARDING
+  HIRING
+  COMPLIANCE
+  ENGINEERING
+  SALES
+  PARTNERSHIP
+  SECURITY
+  CUSTOM
+
+  @@map("context_category")
+}
+
+// ============================================================
+// DECISION SYSTEM (THIS IS YOUR MOAT)
+// ============================================================
+
+// Decisions are the atomic unit of truth — immutable events.
+// Every decision is anchored to a tenant, a subject company,
+// and optionally a deal and context domain.
 model Decision {
-  id                   String              @id @default(uuid()) @db.Uuid
-  organizationId       String              @map("organization_id") @db.Uuid
-  companyId            String              @map("company_id") @db.Uuid
-  dealId               String?             @map("deal_id") @db.Uuid
-  decisionType         DecisionType        @map("decision_type")
-  status               DecisionStatus      @default(PROPOSED)
-  recommendedAction    String?             @map("recommended_action")
+  id                    String              @id @default(uuid()) @db.Uuid
+  tenantId              String              @map("tenant_id") @db.Uuid
+  subjectCompanyId      String              @map("subject_company_id") @db.Uuid
+  dealId                String?             @map("deal_id") @db.Uuid
+  contextId             String?             @map("context_id") @db.Uuid
+  decisionType          DecisionType        @map("decision_type")
+  status                DecisionStatus      @default(PROPOSED)
+  urgency               DecisionUrgency     @default(NORMAL)
+  recommendedAction     String?             @map("recommended_action")
   recommendedConfidence DecisionConfidence? @map("recommended_confidence")
-  finalAction          String?             @map("final_action")
-  decidedBy            String?             @map("decided_by") @db.Uuid
-  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  decidedAt            DateTime?           @map("decided_at") @db.Timestamptz(6)
+  suggestedConditions   Json?               @map("suggested_conditions") // ["Require upfront payment", "Limit discount to 10%"]
+  finalAction           String?             @map("final_action")
+  decidedBy             String?             @map("decided_by") @db.Uuid
+  expiresAt             DateTime?           @map("expires_at") @db.Timestamptz(6)
+  createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  decidedAt             DateTime?           @map("decided_at") @db.Timestamptz(6)
 
-  organization         Organization              @relation(fields: [organizationId], references: [id])
-  company              Company                   @relation(fields: [companyId], references: [id])
-  deal                 Deal?                     @relation(fields: [dealId], references: [id])
-  decisionMaker        User?                     @relation("DecisionMaker", fields: [decidedBy], references: [id])
-  contextSnapshot      DecisionContextSnapshot?
-  humanOverrides       DecisionHumanOverride[]
-  outcomes             DecisionOutcome[]
-  linksAsSource        DecisionLink[]            @relation("SourceDecision")
-  linksAsTarget        DecisionLink[]            @relation("TargetDecision")
-  externalSources      ExternalSource[]
+  tenant          Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subjectCompany  SubjectCompany           @relation(fields: [subjectCompanyId], references: [id])
+  deal            Deal?                    @relation(fields: [dealId], references: [id])
+  context         DecisionContext?         @relation(fields: [contextId], references: [id])
+  decisionMaker   User?                    @relation("DecisionMaker", fields: [decidedBy], references: [id])
+  contextSnapshot DecisionContextSnapshot?
+  humanOverrides  DecisionHumanOverride[]
+  outcomes        DecisionOutcome[]
+  linksAsSource   DecisionLink[]           @relation("SourceDecision")
+  linksAsTarget   DecisionLink[]           @relation("TargetDecision")
+  externalSources ExternalSource[]
 
+  @@index([tenantId])
+  @@index([subjectCompanyId])
+  @@index([tenantId, status])
+  @@index([tenantId, decisionType])
+  @@index([tenantId, contextId])
+  @@index([createdAt])
   @@map("decisions")
 }
 
@@ -113,83 +241,151 @@ enum DecisionType {
   DISCOUNT
   ONBOARDING
   PAYMENT_TERMS
+  CREDIT_EXTENSION
+  PARTNERSHIP
+  RENEWAL
+  ESCALATION
+  CUSTOM
+
+  @@map("decision_type")
 }
 
 enum DecisionStatus {
   PROPOSED
+  PENDING_REVIEW
   APPROVED
   REJECTED
   OVERRIDDEN
+  EXPIRED
+  ESCALATED
+
+  @@map("decision_status")
 }
 
 enum DecisionConfidence {
   LOW
   MEDIUM
   HIGH
+  VERY_HIGH
+
+  @@map("decision_confidence")
 }
 
-// Context snapshots capture the world state at decision time (time travel)
+enum DecisionUrgency {
+  LOW
+  NORMAL
+  HIGH
+  CRITICAL
+
+  @@map("decision_urgency")
+}
+
+// ============================================================
+// DECISION TRACE COMPONENTS
+// ============================================================
+
+// Context snapshots capture the world state at decision time.
+// This is your time-travel capability:
+// "What did the world look like when this decision was made?"
 model DecisionContextSnapshot {
-  id          String   @id @default(uuid()) @db.Uuid
-  decisionId  String   @unique @map("decision_id") @db.Uuid
-  signals     Json     // Raw signals used by the agent
-  policies    Json?    // Policies evaluated (even informal ones)
-  agentRationale String? @map("agent_rationale") @db.Text
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id               String   @id @default(uuid()) @db.Uuid
+  decisionId       String   @unique @map("decision_id") @db.Uuid
+  signals          Json // Raw signals used by the agent
+  policies         Json? // Policies evaluated (even informal ones)
+  agentRationale   String?  @map("agent_rationale") @db.Text
+  agentModel       String?  @map("agent_model") // Which AI model produced this
+  processingTimeMs Int?     @map("processing_time_ms") // How long context gathering took
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
 
   @@map("decision_context_snapshots")
 }
 
-// Human overrides capture judgment (gold for learning)
+// Human overrides capture judgment — this is gold for learning and trust calibration.
 model DecisionHumanOverride {
-  id            String   @id @default(uuid()) @db.Uuid
-  decisionId    String   @map("decision_id") @db.Uuid
-  userId        String   @map("user_id") @db.Uuid
-  overrideReason String? @map("override_reason") @db.Text
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id             String         @id @default(uuid()) @db.Uuid
+  decisionId     String         @map("decision_id") @db.Uuid
+  userId         String         @map("user_id") @db.Uuid
+  overrideAction OverrideAction @map("override_action")
+  overrideReason String?        @map("override_reason") @db.Text
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
   user     User     @relation(fields: [userId], references: [id])
 
+  @@index([decisionId])
+  @@index([userId])
   @@map("decision_human_overrides")
 }
 
-// Decision outcomes track what actually happened (for learning)
+enum OverrideAction {
+  APPROVED
+  REJECTED
+  ESCALATED
+  MODIFIED
+
+  @@map("override_action")
+}
+
+// Decision outcomes track what actually happened — the feedback loop.
+// This is how you eventually answer: "Which decisions were actually good?"
 model DecisionOutcome {
-  id          String         @id @default(uuid()) @db.Uuid
-  decisionId  String         @map("decision_id") @db.Uuid
-  userId      String?        @map("user_id") @db.Uuid
-  outcomeType OutcomeType    @map("outcome_type")
-  notes       String?        @db.Text
-  recordedAt  DateTime       @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  id          String      @id @default(uuid()) @db.Uuid
+  decisionId  String      @map("decision_id") @db.Uuid
+  userId      String?     @map("user_id") @db.Uuid
+  outcomeType OutcomeType @map("outcome_type")
+  notes       String?     @db.Text
+  recordedAt  DateTime    @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
   user     User?    @relation(fields: [userId], references: [id])
 
+  @@index([decisionId])
+  @@index([outcomeType])
   @@map("decision_outcomes")
 }
 
 enum OutcomeType {
   PAID_ON_TIME
+  PAID_LATE
   CHURNED
   FRAUD
   EXPANDED
+  DOWNGRADED
+  DEFAULTED
+  POSITIVE
+  NEGATIVE
+  NEUTRAL
+
+  @@map("outcome_type")
 }
 
-// Decision links form the foundation of the context graph (precedent tracking)
+// ============================================================
+// CONTEXT GRAPH & PRECEDENT (SECRET WEAPON)
+// ============================================================
+
+// Decision links form the context graph — precedent, similarity, contradiction.
+// This becomes your "case law" system. No Neo4j needed on day one.
 model DecisionLink {
-  id               String             @id @default(uuid()) @db.Uuid
-  fromDecisionId   String             @map("from_decision_id") @db.Uuid
-  toDecisionId     String             @map("to_decision_id") @db.Uuid
-  relationshipType RelationshipType   @map("relationship_type")
-  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  id               String           @id @default(uuid()) @db.Uuid
+  fromDecisionId   String           @map("from_decision_id") @db.Uuid
+  toDecisionId     String           @map("to_decision_id") @db.Uuid
+  relationshipType RelationshipType @map("relationship_type")
+  confidence       Decimal?         @db.Decimal(3, 2) // 0.00 to 1.00 similarity score
+  notes            String?          @db.Text
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   sourceDecision Decision @relation("SourceDecision", fields: [fromDecisionId], references: [id], onDelete: Cascade)
   targetDecision Decision @relation("TargetDecision", fields: [toDecisionId], references: [id], onDelete: Cascade)
 
-  @@unique([fromDecisionId, toDecisionId])
+  @@unique([fromDecisionId, toDecisionId, relationshipType])
+  @@index([fromDecisionId])
+  @@index([toDecisionId])
   @@map("decision_links")
 }
 
@@ -197,31 +393,121 @@ enum RelationshipType {
   PRECEDENT
   SIMILAR_CASE
   POLICY_EXCEPTION
+  CONTRADICTS
+  SUPPORTS
+  FOLLOW_UP
+
+  @@map("relationship_type")
 }
 
-// External sources track signal provenance (auditability)
+// ============================================================
+// SIGNAL SOURCING & AUDIT
+// ============================================================
+
+// External sources track where signals came from — full auditability.
 model ExternalSource {
-  id         String   @id @default(uuid()) @db.Uuid
-  decisionId String   @map("decision_id") @db.Uuid
-  sourceType String   @map("source_type")
-  sourceUrl  String?  @map("source_url")
-  extractedAt DateTime @default(now()) @map("extracted_at") @db.Timestamptz(6)
+  id          String     @id @default(uuid()) @db.Uuid
+  decisionId  String     @map("decision_id") @db.Uuid
+  sourceType  SourceType @map("source_type")
+  sourceUrl   String?    @map("source_url")
+  rawData     Json?      @map("raw_data") // The actual scraped/fetched content snapshot
+  reliability Decimal?   @db.Decimal(3, 2) // 0.00 to 1.00 source reliability score
+  extractedAt DateTime   @default(now()) @map("extracted_at") @db.Timestamptz(6)
+  updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  decision Decision @relation(fields: [decisionId], references: [id])
+  decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
 
+  @@index([decisionId])
+  @@index([sourceType])
   @@map("external_sources")
 }
 
-// Policies structure decision rules (even informal ones)
+enum SourceType {
+  REDDIT
+  TWITTER
+  G2
+  TRUSTPILOT
+  NEWS
+  GOOGLE_SEARCH
+  WEBSITE
+  LINKEDIN
+  CRUNCHBASE
+  COURT_RECORDS
+  FINANCIAL_FILINGS
+  GLASSDOOR
+  GITHUB
+  CUSTOM
+
+  @@map("source_type")
+}
+
+// ============================================================
+// POLICIES & RULES
+// ============================================================
+
+// Policies structure decision rules — even informal ones deserve structure.
+// Versioned so you can track policy evolution over time.
 model Policy {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  name           String
-  description    String?  @db.Text
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  name        String
+  description String?  @db.Text
+  rules       Json? // Structured policy rules (conditions, thresholds, etc.)
+  version     Int      @default(1)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
+  @@index([tenantId, active])
   @@map("policies")
+}
+
+// ============================================================
+// WEBHOOK INGESTION
+// ============================================================
+
+// WebhookEvent tracks every incoming webhook for idempotency, debugging, and replay.
+// This is critical for a system that sits in the execution path.
+model WebhookEvent {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  externalEventId String?            @unique @map("external_event_id") // Idempotency key
+  eventType       WebhookEventType   @map("event_type")
+  payload         Json
+  status          WebhookEventStatus @default(RECEIVED)
+  processedAt     DateTime?          @map("processed_at") @db.Timestamptz(6)
+  error           String?            @db.Text
+  retryCount      Int                @default(0) @map("retry_count")
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([externalEventId])
+  @@map("webhook_events")
+}
+
+enum WebhookEventType {
+  COMPANY_CREATED
+  COMPANY_UPDATED
+  DEAL_CREATED
+  DEAL_UPDATED
+  DISCOUNT_REQUESTED
+
+  @@map("webhook_event_type")
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  SKIPPED
+
+  @@map("webhook_event_status")
 }

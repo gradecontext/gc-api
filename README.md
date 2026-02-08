@@ -4,38 +4,41 @@
 
 A B2B SaaS microservice that provides real-time decision intelligence by analyzing company context and generating AI-powered recommendations for onboarding, discount approvals, and payment terms.
 
-## 🎯 Product Positioning
+## Product Positioning
 
 ContextGrade is positioned as:
 - **Decision intelligence for onboarding, pricing, and trust**
 - **System of record for decisions** (not analytics)
 - **In the execution path** (not background analysis)
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 CRM / Billing System
-   │ (webhook)
-   ▼
-Decision Trigger Service ← You are here
-   │
-   ▼
+   | (webhook)
+   v
+Webhook Event Store (idempotency + replay)
+   |
+   v
+Decision Trigger Service
+   |
+   v
 Context Gatherer Agent
-   │
-   ▼
+   |
+   v
 Decision Proposal Agent
-   │
-   ▼
+   |
+   v
 Human Review UI (Future)
-   │
-   ▼
+   |
+   v
 Decision Trace Store (Context Graph)
-   │
-   ├── Writeback to CRM
-   └── Precedent Search
+   |
+   |-- Writeback to CRM
+   '-- Precedent Search
 ```
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **Runtime**: Node.js 18+, TypeScript
 - **Framework**: Fastify
@@ -43,7 +46,7 @@ Decision Trace Store (Context Graph)
 - **AI**: OpenAI (Anthropic supported)
 - **Auth**: API Key-based (simple middleware)
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 /src
@@ -81,7 +84,7 @@ Decision Trace Store (Context Graph)
     id.ts
 ```
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -135,23 +138,33 @@ npm start
 
 The server will start on `http://localhost:3000` (or your configured PORT).
 
-## 📡 API Endpoints
+## API Endpoints
+
+All endpoints require authentication via API key (see [Authentication](#authentication)).
+
+---
 
 ### 1. Create Decision (Webhook Entry Point)
 
 **POST** `/api/v1/decisions`
 
-Creates a new decision, gathers context, and generates an AI recommendation.
+Creates a new decision by gathering context about a subject company and generating an AI recommendation. This is the primary webhook entry point for CRM / billing integrations.
 
 **Request Body:**
+
 ```json
 {
-  "organization_id": "uuid",
-  "company": {
-    "name": "Acme Corp",
-    "domain": "https://acme.com",
+  "tenant_id": "uuid",
+  "subject_company": {
+    "external_id": "crm-abc-corp-123",
+    "name": "ABC Corp",
+    "domain": "https://abccorp.com",
     "industry": "Technology",
-    "country": "USA"
+    "country": "USA",
+    "metadata": {
+      "source": "salesforce",
+      "tags": ["enterprise", "new-lead"]
+    }
   },
   "deal": {
     "crm_deal_id": "sf-12345",
@@ -159,26 +172,52 @@ Creates a new decision, gathers context, and generates an AI recommendation.
     "currency": "USD",
     "discount_requested": 15
   },
-  "decision_type": "DISCOUNT"
+  "decision_type": "DISCOUNT",
+  "context_key": "payment_onboarding"
 }
 ```
 
-**Response:**
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `tenant_id` | UUID | Yes | ContextGrade tenant (your organization) |
+| `subject_company.external_id` | string | Yes | Your CRM/system identifier for the company being evaluated |
+| `subject_company.name` | string | Yes | Company name |
+| `subject_company.domain` | string | No | Company website URL |
+| `subject_company.industry` | string | No | Industry vertical |
+| `subject_company.country` | string | No | Country code or name |
+| `subject_company.metadata` | object | No | Arbitrary extra data from your system |
+| `deal.crm_deal_id` | string | No | CRM deal identifier (Salesforce, HubSpot, etc.) |
+| `deal.amount` | number | No | Deal amount |
+| `deal.currency` | string | No | Currency code (defaults to USD) |
+| `deal.discount_requested` | number | No | Requested discount percentage (0-100) |
+| `decision_type` | enum | Yes | One of: `DISCOUNT`, `ONBOARDING`, `PAYMENT_TERMS`, `CREDIT_EXTENSION`, `PARTNERSHIP`, `RENEWAL`, `ESCALATION`, `CUSTOM` |
+| `context_key` | string | No | Key referencing a tenant-defined DecisionContext (e.g. `payment_onboarding`) |
+
+**Response (201):**
+
 ```json
 {
   "id": "decision-uuid",
-  "organization_id": "uuid",
-  "company_id": "uuid",
+  "tenant_id": "uuid",
+  "subject_company_id": "uuid",
+  "deal_id": "uuid",
+  "context_key": "payment_onboarding",
   "decision_type": "DISCOUNT",
   "status": "PROPOSED",
+  "urgency": "NORMAL",
   "recommended_action": "approve_with_conditions",
   "recommended_confidence": "MEDIUM",
+  "suggested_conditions": [
+    "Require upfront payment",
+    "Limit discount to 10%"
+  ],
   "recommendation": {
     "recommendation": "approve_with_conditions",
     "confidence": "medium",
     "rationale": [
       "Multiple recent complaints about delayed payments",
-      "No prior purchasing history"
+      "No prior purchasing history",
+      "Similar company approved last quarter with prepay condition"
     ],
     "suggested_conditions": [
       "Require upfront payment",
@@ -186,41 +225,81 @@ Creates a new decision, gathers context, and generates an AI recommendation.
     ]
   },
   "context": {
-    "signals": { ... },
-    "agent_rationale": "..."
+    "signals": {
+      "reddit_complaints": 5,
+      "twitter_sentiment": "negative",
+      "g2_rating": 2.8,
+      "payment_history": "unknown"
+    },
+    "agent_rationale": "...",
+    "agent_model": "gpt-4"
   },
-  "created_at": "2026-01-01T00:00:00Z"
+  "subject_company": {
+    "id": "uuid",
+    "external_id": "crm-abc-corp-123",
+    "name": "ABC Corp",
+    "domain": "https://abccorp.com",
+    "industry": "Technology",
+    "country": "USA"
+  },
+  "overrides": [],
+  "links": [],
+  "created_at": "2026-02-07T00:00:00Z"
 }
 ```
+
+---
 
 ### 2. Review Decision (Human Action)
 
 **POST** `/api/v1/decisions/:id/review`
 
-Allows a human to approve, reject, or override a decision.
+Allows a human to approve, reject, override, or escalate a proposed decision. This is the human-in-the-loop step where decision traces are born.
 
 **Request Body:**
+
 ```json
 {
-  "action": "approve",
-  "note": "Strategic logo win"
+  "action": "override",
+  "note": "Strategic logo win — accepting at reduced margin",
+  "final_action": "approve_full_discount"
 }
 ```
 
-**Actions:**
-- `approve`: Approve the recommendation
-- `reject`: Reject the recommendation
-- `override`: Override with custom action
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `action` | enum | Yes | One of: `approve`, `reject`, `override`, `escalate` |
+| `note` | string | No | Explanation for the action (stored as override reason) |
+| `final_action` | string | No | Custom action text when overriding |
+
+**Actions explained:**
+
+| Action | Decision Status | Description |
+|---|---|---|
+| `approve` | `APPROVED` | Accept the AI recommendation as-is |
+| `reject` | `REJECTED` | Decline the recommendation |
+| `override` | `OVERRIDDEN` | Replace with a custom action (records override trace) |
+| `escalate` | `ESCALATED` | Push to a higher authority for review |
+
+**Response (200):** Returns the updated decision in the same format as the create endpoint.
+
+---
 
 ### 3. Fetch Decision (Audit View)
 
 **GET** `/api/v1/decisions/:id`
 
-Retrieves a decision with full context, including:
-- Original recommendation
-- Context snapshot
-- Human overrides
-- Linked precedents
+Retrieves a decision with its full context trace, including:
+- Original AI recommendation and rationale
+- Context snapshot (signals at decision time)
+- Human overrides with reasons
+- Linked precedent decisions
+- Subject company details
+- External source provenance
+
+**Response (200):** Same format as the create endpoint response.
+
+---
 
 ### Health Check
 
@@ -228,7 +307,14 @@ Retrieves a decision with full context, including:
 
 Returns service health status.
 
-## 🔐 Authentication
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-02-07T00:00:00Z"
+}
+```
+
+## Authentication
 
 Currently uses API key authentication via:
 - Header: `X-API-Key: your-key`
@@ -237,26 +323,46 @@ Currently uses API key authentication via:
 
 Set `API_KEY` in your `.env` file. If omitted, authentication is skipped (development only).
 
-## 🗄️ Database Schema
+## Database Schema
 
-The schema implements a decision trace store with the following core tables:
+The schema implements a multi-tenant decision trace store with the following core tables:
 
-- **organizations**: Your customers (B2B SaaS using ContextGrade)
-- **users**: Humans making decisions
-- **companies**: Subject of decisions (your customer's customer)
-- **deals**: Revenue context for decisions
-- **decisions**: Immutable decision events
-- **decision_context_snapshots**: Time-travel context snapshots
-- **decision_human_overrides**: Human judgment capture
-- **decision_links**: Precedent relationships (context graph foundation)
+| Table | Description |
+|---|---|
+| `tenants` | ContextGrade's direct customers (B2B companies using the platform) |
+| `users` | Humans within tenant orgs who make, review, or view decisions |
+| `subject_companies` | Entities being evaluated (the tenant's clients/prospects) |
+| `deals` | Revenue context anchoring decisions to deal value |
+| `decision_contexts` | Tenant-defined context domains (e.g. payment_onboarding, hiring) |
+| `decisions` | Immutable decision events — the atomic unit of truth |
+| `decision_context_snapshots` | Time-travel: world state captured at decision time |
+| `decision_human_overrides` | Human judgment traces (accountability + learning) |
+| `decision_outcomes` | What actually happened after the decision (feedback loop) |
+| `decision_links` | Precedent relationships forming the context graph |
+| `external_sources` | Signal provenance tracking (auditability) |
+| `policies` | Versioned decision rules (even informal ones) |
+| `webhook_events` | Incoming webhook log for idempotency, debugging, and replay |
+
+### Key Enums
+
+| Enum | Values |
+|---|---|
+| `DecisionType` | `DISCOUNT`, `ONBOARDING`, `PAYMENT_TERMS`, `CREDIT_EXTENSION`, `PARTNERSHIP`, `RENEWAL`, `ESCALATION`, `CUSTOM` |
+| `DecisionStatus` | `PROPOSED`, `PENDING_REVIEW`, `APPROVED`, `REJECTED`, `OVERRIDDEN`, `EXPIRED`, `ESCALATED` |
+| `DecisionConfidence` | `LOW`, `MEDIUM`, `HIGH`, `VERY_HIGH` |
+| `DecisionUrgency` | `LOW`, `NORMAL`, `HIGH`, `CRITICAL` |
+| `OutcomeType` | `PAID_ON_TIME`, `PAID_LATE`, `CHURNED`, `FRAUD`, `EXPANDED`, `DOWNGRADED`, `DEFAULTED`, `POSITIVE`, `NEGATIVE`, `NEUTRAL` |
+| `RelationshipType` | `PRECEDENT`, `SIMILAR_CASE`, `POLICY_EXCEPTION`, `CONTRADICTS`, `SUPPORTS`, `FOLLOW_UP` |
+| `SourceType` | `REDDIT`, `TWITTER`, `G2`, `TRUSTPILOT`, `NEWS`, `GOOGLE_SEARCH`, `WEBSITE`, `LINKEDIN`, `CRUNCHBASE`, `COURT_RECORDS`, `FINANCIAL_FILINGS`, `GLASSDOOR`, `GITHUB`, `CUSTOM` |
+| `ContextCategory` | `PAYMENT`, `ONBOARDING`, `HIRING`, `COMPLIANCE`, `ENGINEERING`, `SALES`, `PARTNERSHIP`, `SECURITY`, `CUSTOM` |
 
 See `prisma/schema.prisma` for complete schema definition.
 
-## 🧠 Core Domain Rules
+## Core Domain Rules
 
 1. **Decisions are immutable events**
    - You may update status
-   - You may append overrides
+   - You may append overrides and outcomes
    - You may not delete decisions
 
 2. **Context is snapshot-based**
@@ -271,21 +377,30 @@ See `prisma/schema.prisma` for complete schema definition.
    - Use recommendations + rationale
    - Avoid numeric credibility scores
 
-## 🔮 Roadmap (V2+)
+5. **Subject companies are identified by externalId**
+   - Each tenant provides their own CRM identifier
+   - All decisions for the same `external_id` are linked automatically
+   - Unique per tenant: `(tenant_id, external_id)`
+
+6. **Decision contexts are tenant-defined**
+   - Contexts like `payment_onboarding`, `hiring`, `coding_practices` are scoped per tenant
+   - Long-term: context traces become exportable knowledge (skills.md)
+
+## Roadmap (V2+)
 
 - [ ] Reddit API integration
 - [ ] Twitter/X API integration
 - [ ] G2 and Trustpilot integration
-- [ ] Financial health APIs
-- [ ] Precedent search by similarity
-- [ ] Decision outcome tracking
+- [ ] Financial health APIs (Crunchbase, court records)
+- [ ] Precedent search by similarity (embeddings)
+- [ ] Decision outcome tracking + feedback loop
 - [ ] Human Review UI
 - [ ] Webhook writeback to CRM
-- [ ] Graph database promotion (AGE extension)
+- [ ] Context graph promotion (AGE Postgres extension)
 - [ ] OAuth/JWT authentication
-- [ ] Multi-tenant isolation
+- [ ] Context-to-skills.md export for foresight decisions
 
-## 📝 Development
+## Development
 
 ### Scripts
 
@@ -304,7 +419,7 @@ See `prisma/schema.prisma` for complete schema definition.
 - Prefer clarity over cleverness
 - Comments explain WHY, not WHAT
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 **Database connection errors:**
 - Verify `DATABASE_URL` is correct
@@ -321,10 +436,10 @@ See `prisma/schema.prisma` for complete schema definition.
 - Ensure header format is correct
 - Check logs for detailed error messages
 
-## 📄 License
+## License
 
 MIT
 
 ---
 
-**Built with ❤️ for decision intelligence**
+**Built for decision intelligence**
