@@ -13,7 +13,7 @@ import {
 export type { DecisionType, DecisionStatus, DecisionConfidence, DecisionUrgency };
 
 export interface CreateDecisionInput {
-  tenant_id: string;
+  client_id: string;
   subject_company: {
     external_id: string;
     name: string;
@@ -30,6 +30,7 @@ export interface CreateDecisionInput {
   };
   decision_type: DecisionType;
   context_key?: string; // Key referencing a DecisionContext
+  sandbox_id?: string; // If provided, decision is scoped to this sandbox
 }
 
 export interface ReviewDecisionInput {
@@ -40,13 +41,15 @@ export interface ReviewDecisionInput {
 
 export interface DecisionResponse {
   id: string;
-  tenant_id: string;
+  client_id: string;
   subject_company_id: string;
   deal_id?: string;
   context_key?: string;
+  sandbox_id?: string;
   decision_type: DecisionType;
   status: DecisionStatus;
   urgency?: DecisionUrgency;
+  summary?: string;
   recommended_action?: string;
   recommended_confidence?: DecisionConfidence;
   suggested_conditions?: unknown;
@@ -85,5 +88,10 @@ export interface DecisionResponse {
     domain?: string;
     industry?: string;
     country?: string;
+  };
+  decided_by_user?: {
+    id: string;
+    name?: string;
+    title?: string;
   };
 }

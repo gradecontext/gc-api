@@ -12,11 +12,13 @@ import { logger } from '../../utils/logger';
 import { Prisma } from '@prisma/client';
 
 export interface DecisionCreateData {
-  tenantId: string;
+  clientId: string;
   subjectCompanyId: string;
   dealId?: string;
   contextId?: string;
+  sandboxId?: string;
   decisionType: DecisionType;
+  summary?: string;
   recommendedAction?: string;
   recommendedConfidence?: DecisionConfidence;
   suggestedConditions?: unknown;
@@ -42,18 +44,21 @@ export interface DecisionUpdateData {
  */
 export async function createDecision(data: DecisionCreateData) {
   logger.debug('Creating decision', {
-    tenantId: data.tenantId,
+    clientId: data.clientId,
     subjectCompanyId: data.subjectCompanyId,
     decisionType: data.decisionType,
+    sandboxId: data.sandboxId || undefined,
   });
 
   return await prisma.decision.create({
     data: {
-      tenantId: data.tenantId,
+      clientId: data.clientId,
       subjectCompanyId: data.subjectCompanyId,
       dealId: data.dealId,
       contextId: data.contextId,
+      sandboxId: data.sandboxId,
       decisionType: data.decisionType,
+      summary: data.summary,
       recommendedAction: data.recommendedAction,
       recommendedConfidence: data.recommendedConfidence,
       suggestedConditions: data.suggestedConditions ? (data.suggestedConditions as Prisma.InputJsonValue) : undefined,
@@ -83,11 +88,11 @@ export async function createDecision(data: DecisionCreateData) {
  */
 export async function findDecisionById(
   decisionId: string,
-  tenantId?: string
+  clientId?: string
 ) {
-  const where: { id: string; tenantId?: string } = { id: decisionId };
-  if (tenantId) {
-    where.tenantId = tenantId;
+  const where: { id: string; clientId?: string } = { id: decisionId };
+  if (clientId) {
+    where.clientId = clientId;
   }
 
   return await prisma.decision.findFirst({
@@ -97,6 +102,14 @@ export async function findDecisionById(
       subjectCompany: true,
       deal: true,
       context: true,
+      decisionMaker: {
+        select: {
+          id: true,
+          name: true,
+          title: true,
+          email: true,
+        },
+      },
       humanOverrides: {
         include: {
           user: {
@@ -104,6 +117,7 @@ export async function findDecisionById(
               id: true,
               email: true,
               name: true,
+              title: true,
             },
           },
         },
@@ -171,10 +185,10 @@ export async function updateDecisionStatus(
 
 /**
  * Find or create subject company
- * Uses externalId for idempotent upsert within a tenant
+ * Uses externalId for idempotent upsert within a client
  */
 export async function findOrCreateSubjectCompany(
-  tenantId: string,
+  clientId: string,
   companyData: {
     externalId: string;
     name: string;
@@ -184,11 +198,11 @@ export async function findOrCreateSubjectCompany(
     metadata?: unknown;
   }
 ) {
-  // Upsert by tenantId + externalId (the unique constraint)
+  // Upsert by clientId + externalId (the unique constraint)
   return await prisma.subjectCompany.upsert({
     where: {
-      tenantId_externalId: {
-        tenantId,
+      clientId_externalId: {
+        clientId,
         externalId: companyData.externalId,
       },
     },
@@ -200,7 +214,7 @@ export async function findOrCreateSubjectCompany(
       metadata: companyData.metadata ? (companyData.metadata as Prisma.InputJsonValue) : undefined,
     },
     create: {
-      tenantId,
+      clientId,
       externalId: companyData.externalId,
       name: companyData.name,
       domain: companyData.domain || null,

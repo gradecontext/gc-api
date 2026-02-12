@@ -17,7 +17,7 @@ import { AuthenticatedRequest } from '../../middleware/auth.middleware';
 
 // Validation schemas
 const createDecisionSchema = z.object({
-  tenant_id: z.string().uuid(),
+  client_id: z.string().uuid(),
   subject_company: z.object({
     external_id: z.string().min(1),
     name: z.string().min(1),
@@ -65,14 +65,23 @@ export async function createDecisionHandler(
     // Validate request body
     const body = createDecisionSchema.parse(request.body);
 
+    // If client was resolved from API key, use that; otherwise use body
+    const authReq = request as AuthenticatedRequest;
+    const clientId = authReq.clientId || body.client_id;
+
     logger.info('Decision creation request received', {
-      tenantId: body.tenant_id,
+      clientId,
       companyName: body.subject_company.name,
       externalId: body.subject_company.external_id,
+      isSandbox: authReq.isSandbox || false,
     });
 
     // Process decision creation (async orchestration)
-    const decision = await processDecisionCreation(body);
+    const decision = await processDecisionCreation({
+      ...body,
+      client_id: clientId,
+      sandbox_id: authReq.sandboxId, // Automatically scope to sandbox if applicable
+    });
 
     reply.code(201).send(decision);
   } catch (error) {
@@ -150,12 +159,12 @@ export async function getDecisionHandler(
   try {
     const decisionId = request.params.id;
 
-    // TODO: Extract tenant ID from auth for multi-tenancy isolation
-    const tenantId = (request as AuthenticatedRequest).tenantId;
+    // Extract client ID from auth for multi-client isolation
+    const clientId = (request as AuthenticatedRequest).clientId;
 
     logger.debug('Fetching decision', { decisionId });
 
-    const decision = await getDecisionById(decisionId, tenantId);
+    const decision = await getDecisionById(decisionId, clientId);
 
     if (!decision) {
       reply.code(404).send({

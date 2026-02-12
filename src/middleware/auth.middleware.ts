@@ -1,16 +1,25 @@
 /**
  * API Key authentication middleware
- * Simple key-based auth for internal services
+ * Supports production client API keys and sandbox API keys.
+ * 
+ * Access levels:
+ * - production: Full access to live decision data (resolved from Client.apiKey)
+ * - sandbox: Isolated sandbox environment (resolved from SandboxAccount.apiKey)
+ * 
  * TODO: Replace with proper OAuth/JWT in production
  */
 
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { prisma } from '../db/client';
 
 export interface AuthenticatedRequest extends FastifyRequest {
-  tenantId?: string;
+  clientId?: string;
   userId?: string;
+  sandboxId?: string;
+  isSandbox?: boolean;
+  accessLevel?: 'production' | 'sandbox';
 }
 
 /**
@@ -41,11 +50,73 @@ function extractApiKey(request: FastifyRequest): string | null {
 }
 
 /**
- * API Key authentication middleware
- * Validates API key and extracts organization context
+ * Resolve API key to client or sandbox context.
  * 
- * For V1, we use a simple shared API key
- * Future: Map API keys to organizations/users
+ * Resolution order:
+ * 1. Check master API key (backward compat / admin access)
+ * 2. Check Client.apiKey → production access
+ * 3. Check SandboxAccount.apiKey → sandbox access
+ */
+async function resolveApiKey(apiKey: string): Promise<{
+  clientId: string;
+  sandboxId?: string;
+  isSandbox: boolean;
+  accessLevel: 'production' | 'sandbox';
+} | null> {
+  // 1. Master API key (development / admin)
+  if (env.API_KEY && apiKey === env.API_KEY) {
+    // Master key doesn't bind to a specific client
+    // Client must be provided in request body
+    return null;
+  }
+
+  // 2. Try resolving as a Client production API key
+  const client = await prisma.client.findUnique({
+    where: { apiKey },
+    select: { id: true },
+  });
+
+  if (client) {
+    return {
+      clientId: client.id,
+      isSandbox: false,
+      accessLevel: 'production',
+    };
+  }
+
+  // 3. Try resolving as a Sandbox API key
+  const sandbox = await prisma.sandboxAccount.findUnique({
+    where: { apiKey },
+    select: { id: true, clientId: true, active: true, expiresAt: true },
+  });
+
+  if (sandbox) {
+    // Check sandbox is active
+    if (!sandbox.active) {
+      return null; // Inactive sandbox — treat as invalid key
+    }
+
+    // Check expiry
+    if (sandbox.expiresAt && sandbox.expiresAt < new Date()) {
+      return null; // Expired sandbox
+    }
+
+    return {
+      clientId: sandbox.clientId,
+      sandboxId: sandbox.id,
+      isSandbox: true,
+      accessLevel: 'sandbox',
+    };
+  }
+
+  return null;
+}
+
+/**
+ * API Key authentication middleware
+ * Validates API key and extracts organization + sandbox context
+ * 
+ * For V1: Supports master key, per-client keys, and sandbox keys.
  */
 export async function authenticate(
   request: AuthenticatedRequest,
@@ -67,7 +138,17 @@ export async function authenticate(
     return;
   }
 
-  if (apiKey !== env.API_KEY) {
+  // Check master API key first (backward compat)
+  if (apiKey === env.API_KEY) {
+    logger.debug('Master API key authenticated', { ip: request.ip });
+    // Master key: client must be provided in request body
+    return;
+  }
+
+  // Resolve client/sandbox from API key
+  const resolved = await resolveApiKey(apiKey);
+
+  if (!resolved) {
     logger.warn('Invalid API key attempted', { ip: request.ip });
     reply.code(401).send({
       error: 'Unauthorized',
@@ -76,7 +157,51 @@ export async function authenticate(
     return;
   }
 
-  // TODO: In future, resolve organization/user from API key
-  // For now, authentication passes but organization must be provided in request body
-  logger.debug('API key authenticated', { ip: request.ip });
+  // Set resolved context on request
+  request.clientId = resolved.clientId;
+  request.isSandbox = resolved.isSandbox;
+  request.accessLevel = resolved.accessLevel;
+
+  if (resolved.sandboxId) {
+    request.sandboxId = resolved.sandboxId;
+  }
+
+  logger.debug('API key authenticated', {
+    ip: request.ip,
+    clientId: resolved.clientId,
+    accessLevel: resolved.accessLevel,
+    sandboxId: resolved.sandboxId || undefined,
+  });
+}
+
+/**
+ * Middleware to restrict access to production-only routes.
+ * Use on routes that should never be called from a sandbox context.
+ */
+export async function requireProduction(
+  request: AuthenticatedRequest,
+  reply: FastifyReply
+): Promise<void> {
+  if (request.isSandbox) {
+    reply.code(403).send({
+      error: 'Forbidden',
+      message: 'This endpoint is not available in sandbox mode',
+    });
+  }
+}
+
+/**
+ * Middleware to restrict access to sandbox-only routes.
+ * Use on routes that should only be called from a sandbox context.
+ */
+export async function requireSandbox(
+  request: AuthenticatedRequest,
+  reply: FastifyReply
+): Promise<void> {
+  if (!request.isSandbox) {
+    reply.code(403).send({
+      error: 'Forbidden',
+      message: 'This endpoint requires a sandbox API key',
+    });
+  }
 }

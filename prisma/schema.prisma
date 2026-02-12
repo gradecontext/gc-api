@@ -1,5 +1,5 @@
 // ContextGrade — Decision Intelligence Schema
-// Multi-tenant decision trace store and context graph foundation
+// Multi-client decision trace store and context graph foundation
 // "Decision intelligence for onboarding, pricing, and trust."
 
 generator client {
@@ -15,18 +15,18 @@ datasource db {
 // CORE ENTITIES
 // ============================================================
 
-// Tenants are ContextGrade's direct customers — the B2B companies
+// Clients are ContextGrade's direct customers — the B2B companies
 // that integrate ContextGrade into their onboarding/billing workflows.
 // e.g., "ACME Corp" (GPU seller using ContextGrade)
-model Tenant {
+model Client {
   id            String     @id @default(uuid()) @db.Uuid
   name          String
   slug          String     @unique
   domain        String?
   apiKey        String?    @unique @map("api_key")
   webhookSecret String?    @map("webhook_secret")
-  plan          TenantPlan @default(FREE)
-  settings      Json?      @default("{}") // Tenant-level config (thresholds, preferences)
+  plan          ClientPlan @default(FREE)
+  settings      Json?      @default("{}") // Client-level config (thresholds, preferences)
   createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -36,38 +36,40 @@ model Tenant {
   policies         Policy[]
   decisionContexts DecisionContext[]
   webhookEvents    WebhookEvent[]
+  sandboxAccounts  SandboxAccount[]
 
   @@index([slug])
-  @@map("tenants")
+  @@map("clients")
 }
 
-enum TenantPlan {
+enum ClientPlan {
   FREE
   STARTER
   PROFESSIONAL
   ENTERPRISE
 
-  @@map("tenant_plan")
+  @@map("client_plan")
 }
 
-// Users are humans within tenant organizations who make, review, or view decisions.
+// Users are humans within client organizations who make, review, or view decisions.
 model User {
   id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
+  clientId  String   @map("client_id") @db.Uuid
   email     String
   name      String?
+  title     String?  // Job title, e.g. "VP Sales", "Head of Partnerships"
   role      UserRole @default(VIEWER)
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client            Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   decisionsMade     Decision[]              @relation("DecisionMaker")
   decisionOverrides DecisionHumanOverride[]
   decisionOutcomes  DecisionOutcome[]
 
-  @@unique([tenantId, email])
-  @@index([tenantId])
+  @@unique([clientId, email])
+  @@index([clientId])
   @@map("users")
 }
 
@@ -76,17 +78,18 @@ enum UserRole {
   ADMIN
   APPROVER
   VIEWER
+  SANDBOX_USER // Can only access sandbox environment data
 
   @@map("user_role")
 }
 
-// SubjectCompanies are the entities being evaluated — the tenant's clients/prospects.
+// SubjectCompanies are the entities being evaluated — the client's leads/prospects.
 // e.g., "ABC Corp" (a company wanting to buy GPUs from ACME Corp)
 // Every webhook payload references a SubjectCompany via externalId.
 model SubjectCompany {
   id         String       @id @default(uuid()) @db.Uuid
-  tenantId   String       @map("tenant_id") @db.Uuid
-  externalId String       @map("external_id") // Tenant's CRM/system identifier for this company
+  clientId   String       @map("client_id") @db.Uuid
+  externalId String       @map("external_id") // Client's CRM/system identifier for this company
   name       String
   domain     String?
   industry   String?
@@ -96,14 +99,14 @@ model SubjectCompany {
   createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
   deals     Deal[]
   decisions Decision[]
 
-  @@unique([tenantId, externalId])
-  @@index([tenantId])
+  @@unique([clientId, externalId])
+  @@index([clientId])
   @@index([externalId])
-  @@index([tenantId, domain])
+  @@index([clientId, domain])
   @@map("subject_companies")
 }
 
@@ -152,14 +155,14 @@ enum DealStage {
 // ============================================================
 
 // DecisionContext categorizes the domain a decision belongs to.
-// Tenant-scoped so each customer defines their own contexts.
+// Client-scoped so each customer defines their own contexts.
 // e.g., "payment_onboarding", "payment_renewal", "hiring", "coding_practices"
 //
 // Long-term: contexts accumulate decision traces that can be exported
 // as skills.md knowledge files for foresight-driven decisions.
 model DecisionContext {
   id          String          @id @default(uuid()) @db.Uuid
-  tenantId    String          @map("tenant_id") @db.Uuid
+  clientId    String          @map("client_id") @db.Uuid
   key         String // Machine-friendly slug: "payment_onboarding"
   name        String // Human-friendly label: "Payment Onboarding"
   description String?         @db.Text
@@ -168,11 +171,11 @@ model DecisionContext {
   createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
   decisions Decision[]
 
-  @@unique([tenantId, key])
-  @@index([tenantId])
+  @@unique([clientId, key])
+  @@index([clientId])
   @@map("decision_contexts")
 }
 
@@ -191,21 +194,58 @@ enum ContextCategory {
 }
 
 // ============================================================
+// SANDBOX ENVIRONMENT
+// ============================================================
+
+// SandboxAccounts allow clients to test the decision pipeline without
+// affecting production data. Each sandbox has its own API key and
+// isolated decision data. Useful for integration testing, demos, and QA.
+model SandboxAccount {
+  id          String             @id @default(uuid()) @db.Uuid
+  clientId    String             @map("client_id") @db.Uuid
+  name        String             // "Staging", "QA", "Demo"
+  apiKey      String             @unique @map("api_key")
+  environment SandboxEnvironment @default(SANDBOX)
+  active      Boolean            @default(true)
+  expiresAt   DateTime?          @map("expires_at") @db.Timestamptz(6)
+  settings    Json?              @default("{}") // Sandbox-specific config overrides
+  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  decisions Decision[]
+
+  @@index([clientId])
+  @@index([apiKey])
+  @@map("sandbox_accounts")
+}
+
+enum SandboxEnvironment {
+  SANDBOX
+  STAGING
+  DEMO
+
+  @@map("sandbox_environment")
+}
+
+// ============================================================
 // DECISION SYSTEM (THIS IS YOUR MOAT)
 // ============================================================
 
 // Decisions are the atomic unit of truth — immutable events.
-// Every decision is anchored to a tenant, a subject company,
+// Every decision is anchored to a client, a subject company,
 // and optionally a deal and context domain.
 model Decision {
   id                    String              @id @default(uuid()) @db.Uuid
-  tenantId              String              @map("tenant_id") @db.Uuid
+  clientId              String              @map("client_id") @db.Uuid
   subjectCompanyId      String              @map("subject_company_id") @db.Uuid
   dealId                String?             @map("deal_id") @db.Uuid
   contextId             String?             @map("context_id") @db.Uuid
+  sandboxId             String?             @map("sandbox_id") @db.Uuid // null = production decision
   decisionType          DecisionType        @map("decision_type")
   status                DecisionStatus      @default(PROPOSED)
   urgency               DecisionUrgency     @default(NORMAL)
+  summary               String?             // Human-readable title, e.g. "Acme Corp Discount Request"
   recommendedAction     String?             @map("recommended_action")
   recommendedConfidence DecisionConfidence? @map("recommended_confidence")
   suggestedConditions   Json?               @map("suggested_conditions") // ["Require upfront payment", "Limit discount to 10%"]
@@ -216,10 +256,11 @@ model Decision {
   updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
   decidedAt             DateTime?           @map("decided_at") @db.Timestamptz(6)
 
-  tenant          Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client          Client                   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   subjectCompany  SubjectCompany           @relation(fields: [subjectCompanyId], references: [id])
   deal            Deal?                    @relation(fields: [dealId], references: [id])
   context         DecisionContext?         @relation(fields: [contextId], references: [id])
+  sandbox         SandboxAccount?          @relation(fields: [sandboxId], references: [id])
   decisionMaker   User?                    @relation("DecisionMaker", fields: [decidedBy], references: [id])
   contextSnapshot DecisionContextSnapshot?
   humanOverrides  DecisionHumanOverride[]
@@ -228,11 +269,12 @@ model Decision {
   linksAsTarget   DecisionLink[]           @relation("TargetDecision")
   externalSources ExternalSource[]
 
-  @@index([tenantId])
+  @@index([clientId])
   @@index([subjectCompanyId])
-  @@index([tenantId, status])
-  @@index([tenantId, decisionType])
-  @@index([tenantId, contextId])
+  @@index([clientId, status])
+  @@index([clientId, decisionType])
+  @@index([clientId, contextId])
+  @@index([clientId, sandboxId])
   @@index([createdAt])
   @@map("decisions")
 }
@@ -449,7 +491,7 @@ enum SourceType {
 // Versioned so you can track policy evolution over time.
 model Policy {
   id          String   @id @default(uuid()) @db.Uuid
-  tenantId    String   @map("tenant_id") @db.Uuid
+  clientId    String   @map("client_id") @db.Uuid
   name        String
   description String?  @db.Text
   rules       Json? // Structured policy rules (conditions, thresholds, etc.)
@@ -458,10 +500,10 @@ model Policy {
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
-  @@index([tenantId])
-  @@index([tenantId, active])
+  @@index([clientId])
+  @@index([clientId, active])
   @@map("policies")
 }
 
@@ -473,7 +515,7 @@ model Policy {
 // This is critical for a system that sits in the execution path.
 model WebhookEvent {
   id              String             @id @default(uuid()) @db.Uuid
-  tenantId        String             @map("tenant_id") @db.Uuid
+  clientId        String             @map("client_id") @db.Uuid
   externalEventId String?            @unique @map("external_event_id") // Idempotency key
   eventType       WebhookEventType   @map("event_type")
   payload         Json
@@ -484,9 +526,9 @@ model WebhookEvent {
   createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
 
-  @@index([tenantId])
+  @@index([clientId])
   @@index([status])
   @@index([externalEventId])
   @@map("webhook_events")
