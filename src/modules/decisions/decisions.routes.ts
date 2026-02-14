@@ -22,9 +22,9 @@ export async function decisionsRoutes(fastify: FastifyInstance) {
       tags: ['decisions'],
       body: {
         type: 'object',
-        required: ['tenant_id', 'subject_company', 'decision_type'],
+        required: ['client_id', 'subject_company', 'decision_type'],
         properties: {
-          tenant_id: { type: 'string', format: 'uuid' },
+          client_id: { type: 'string', format: 'uuid' },
           subject_company: {
             type: 'object',
             required: ['external_id', 'name'],

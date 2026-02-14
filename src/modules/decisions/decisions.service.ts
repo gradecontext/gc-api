@@ -37,13 +37,13 @@ export async function processDecisionCreation(
   input: CreateDecisionInput
 ): Promise<DecisionResponse> {
   logger.info('Processing decision creation', {
-    tenantId: input.tenant_id,
+    clientId: input.client_id,
     companyName: input.subject_company.name,
     decisionType: input.decision_type,
   });
 
   // Step 1: Ensure subject company exists (upsert by externalId)
-  const subjectCompany = await findOrCreateSubjectCompany(input.tenant_id, {
+  const subjectCompany = await findOrCreateSubjectCompany(input.client_id, {
     externalId: input.subject_company.external_id,
     name: input.subject_company.name,
     domain: input.subject_company.domain,
@@ -84,12 +84,16 @@ export async function processDecisionCreation(
   const recommendedAction = recommendation.recommendation;
   const recommendedConfidence = recommendation.confidence.toUpperCase() as DecisionConfidence;
 
-  // Step 6: Create decision with context snapshot
+  // Step 6: Build human-readable summary for the UI
+  const summary = `${input.subject_company.name} ${input.decision_type.replace(/_/g, ' ').toLowerCase()} request`;
+
+  // Step 7: Create decision with context snapshot
   const decisionData: DecisionCreateData = {
-    tenantId: input.tenant_id,
+    clientId: input.client_id,
     subjectCompanyId: subjectCompany.id,
     dealId: deal?.id,
     decisionType: input.decision_type,
+    summary,
     recommendedAction,
     recommendedConfidence,
     suggestedConditions: recommendation.suggested_conditions,
@@ -107,7 +111,7 @@ export async function processDecisionCreation(
     recommendation: recommendation.recommendation,
   });
 
-  // Step 7: Format response
+  // Step 8: Format response
   // Fetch the created decision with all relations for response
   const decisionWithRelations = await findDecisionById(decision.id);
   if (!decisionWithRelations) {
@@ -200,9 +204,9 @@ export async function processDecisionReview(
  */
 export async function getDecisionById(
   decisionId: string,
-  tenantId?: string
+  clientId?: string
 ): Promise<DecisionResponse | null> {
-  const decision = await findDecisionById(decisionId, tenantId);
+  const decision = await findDecisionById(decisionId, clientId);
   
   if (!decision) {
     return null;
@@ -240,13 +244,14 @@ function formatDecisionResponse(
 
   return {
     id: decision.id,
-    tenant_id: decision.tenantId,
+    client_id: decision.clientId,
     subject_company_id: decision.subjectCompanyId,
     deal_id: decision.dealId || undefined,
     context_key: decision.context?.key || undefined,
     decision_type: decision.decisionType,
     status: decision.status,
     urgency: decision.urgency,
+    summary: decision.summary || undefined,
     recommended_action: decision.recommendedAction || undefined,
     recommended_confidence: decision.recommendedConfidence || undefined,
     suggested_conditions: decision.suggestedConditions || undefined,
@@ -283,6 +288,13 @@ function formatDecisionResponse(
           domain: decision.subjectCompany.domain || undefined,
           industry: decision.subjectCompany.industry || undefined,
           country: decision.subjectCompany.country || undefined,
+        }
+      : undefined,
+    decided_by_user: decision.decisionMaker
+      ? {
+          id: decision.decisionMaker.id,
+          name: decision.decisionMaker.name || undefined,
+          title: decision.decisionMaker.title || undefined,
         }
       : undefined,
   };

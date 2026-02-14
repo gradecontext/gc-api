@@ -1,15 +1,22 @@
 /**
  * API Key authentication middleware
- * Simple key-based auth for internal services
+ * Resolves client context from per-client API keys.
+ *
+ * Environment isolation (sandbox vs production) is handled at the
+ * infrastructure level — separate DB instances and endpoints
+ * (e.g. sandbox.contextgrade.com vs api.contextgrade.com).
+ * The schema is identical; only DATABASE_URL differs.
+ *
  * TODO: Replace with proper OAuth/JWT in production
  */
 
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { prisma } from '../db/client';
 
 export interface AuthenticatedRequest extends FastifyRequest {
-  tenantId?: string;
+  clientId?: string;
   userId?: string;
 }
 
@@ -41,11 +48,25 @@ function extractApiKey(request: FastifyRequest): string | null {
 }
 
 /**
+ * Resolve API key to a client.
+ * Returns the clientId if found, null otherwise.
+ */
+async function resolveClientApiKey(apiKey: string): Promise<string | null> {
+  const client = await prisma.client.findUnique({
+    where: { apiKey },
+    select: { id: true },
+  });
+
+  return client?.id ?? null;
+}
+
+/**
  * API Key authentication middleware
- * Validates API key and extracts organization context
- * 
- * For V1, we use a simple shared API key
- * Future: Map API keys to organizations/users
+ * Validates API key and extracts client context.
+ *
+ * Supports:
+ * - Master API key (dev/admin — client must be in request body)
+ * - Per-client API keys (resolved from clients table)
  */
 export async function authenticate(
   request: AuthenticatedRequest,
@@ -67,7 +88,17 @@ export async function authenticate(
     return;
   }
 
-  if (apiKey !== env.API_KEY) {
+  // Check master API key first (backward compat / admin)
+  if (apiKey === env.API_KEY) {
+    logger.debug('Master API key authenticated', { ip: request.ip });
+    // Master key: client must be provided in request body
+    return;
+  }
+
+  // Resolve per-client API key
+  const clientId = await resolveClientApiKey(apiKey);
+
+  if (!clientId) {
     logger.warn('Invalid API key attempted', { ip: request.ip });
     reply.code(401).send({
       error: 'Unauthorized',
@@ -76,7 +107,10 @@ export async function authenticate(
     return;
   }
 
-  // TODO: In future, resolve organization/user from API key
-  // For now, authentication passes but organization must be provided in request body
-  logger.debug('API key authenticated', { ip: request.ip });
+  request.clientId = clientId;
+
+  logger.debug('API key authenticated', {
+    ip: request.ip,
+    clientId,
+  });
 }
