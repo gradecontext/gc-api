@@ -16,7 +16,6 @@ export interface DecisionCreateData {
   subjectCompanyId: string;
   dealId?: string;
   contextId?: string;
-  sandboxId?: string;
   decisionType: DecisionType;
   summary?: string;
   recommendedAction?: string;
@@ -47,7 +46,6 @@ export async function createDecision(data: DecisionCreateData) {
     clientId: data.clientId,
     subjectCompanyId: data.subjectCompanyId,
     decisionType: data.decisionType,
-    sandboxId: data.sandboxId || undefined,
   });
 
   return await prisma.decision.create({
@@ -56,7 +54,6 @@ export async function createDecision(data: DecisionCreateData) {
       subjectCompanyId: data.subjectCompanyId,
       dealId: data.dealId,
       contextId: data.contextId,
-      sandboxId: data.sandboxId,
       decisionType: data.decisionType,
       summary: data.summary,
       recommendedAction: data.recommendedAction,

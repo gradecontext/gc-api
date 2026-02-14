@@ -73,14 +73,12 @@ export async function createDecisionHandler(
       clientId,
       companyName: body.subject_company.name,
       externalId: body.subject_company.external_id,
-      isSandbox: authReq.isSandbox || false,
     });
 
     // Process decision creation (async orchestration)
     const decision = await processDecisionCreation({
       ...body,
       client_id: clientId,
-      sandbox_id: authReq.sandboxId, // Automatically scope to sandbox if applicable
     });
 
     reply.code(201).send(decision);

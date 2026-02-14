@@ -30,7 +30,6 @@ export interface CreateDecisionInput {
   };
   decision_type: DecisionType;
   context_key?: string; // Key referencing a DecisionContext
-  sandbox_id?: string; // If provided, decision is scoped to this sandbox
 }
 
 export interface ReviewDecisionInput {
@@ -45,7 +44,6 @@ export interface DecisionResponse {
   subject_company_id: string;
   deal_id?: string;
   context_key?: string;
-  sandbox_id?: string;
   decision_type: DecisionType;
   status: DecisionStatus;
   urgency?: DecisionUrgency;

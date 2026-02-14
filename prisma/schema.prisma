@@ -36,8 +36,6 @@ model Client {
   policies         Policy[]
   decisionContexts DecisionContext[]
   webhookEvents    WebhookEvent[]
-  sandboxAccounts  SandboxAccount[]
-
   @@index([slug])
   @@map("clients")
 }
@@ -78,8 +76,6 @@ enum UserRole {
   ADMIN
   APPROVER
   VIEWER
-  SANDBOX_USER // Can only access sandbox environment data
-
   @@map("user_role")
 }
 
@@ -194,41 +190,6 @@ enum ContextCategory {
 }
 
 // ============================================================
-// SANDBOX ENVIRONMENT
-// ============================================================
-
-// SandboxAccounts allow clients to test the decision pipeline without
-// affecting production data. Each sandbox has its own API key and
-// isolated decision data. Useful for integration testing, demos, and QA.
-model SandboxAccount {
-  id          String             @id @default(uuid()) @db.Uuid
-  clientId    String             @map("client_id") @db.Uuid
-  name        String             // "Staging", "QA", "Demo"
-  apiKey      String             @unique @map("api_key")
-  environment SandboxEnvironment @default(SANDBOX)
-  active      Boolean            @default(true)
-  expiresAt   DateTime?          @map("expires_at") @db.Timestamptz(6)
-  settings    Json?              @default("{}") // Sandbox-specific config overrides
-  createdAt   DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  decisions Decision[]
-
-  @@index([clientId])
-  @@index([apiKey])
-  @@map("sandbox_accounts")
-}
-
-enum SandboxEnvironment {
-  SANDBOX
-  STAGING
-  DEMO
-
-  @@map("sandbox_environment")
-}
-
-// ============================================================
 // DECISION SYSTEM (THIS IS YOUR MOAT)
 // ============================================================
 
@@ -241,7 +202,6 @@ model Decision {
   subjectCompanyId      String              @map("subject_company_id") @db.Uuid
   dealId                String?             @map("deal_id") @db.Uuid
   contextId             String?             @map("context_id") @db.Uuid
-  sandboxId             String?             @map("sandbox_id") @db.Uuid // null = production decision
   decisionType          DecisionType        @map("decision_type")
   status                DecisionStatus      @default(PROPOSED)
   urgency               DecisionUrgency     @default(NORMAL)
@@ -260,7 +220,6 @@ model Decision {
   subjectCompany  SubjectCompany           @relation(fields: [subjectCompanyId], references: [id])
   deal            Deal?                    @relation(fields: [dealId], references: [id])
   context         DecisionContext?         @relation(fields: [contextId], references: [id])
-  sandbox         SandboxAccount?          @relation(fields: [sandboxId], references: [id])
   decisionMaker   User?                    @relation("DecisionMaker", fields: [decidedBy], references: [id])
   contextSnapshot DecisionContextSnapshot?
   humanOverrides  DecisionHumanOverride[]
@@ -274,7 +233,6 @@ model Decision {
   @@index([clientId, status])
   @@index([clientId, decisionType])
   @@index([clientId, contextId])
-  @@index([clientId, sandboxId])
   @@index([createdAt])
   @@map("decisions")
 }

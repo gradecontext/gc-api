@@ -40,7 +40,6 @@ export async function processDecisionCreation(
     clientId: input.client_id,
     companyName: input.subject_company.name,
     decisionType: input.decision_type,
-    sandboxId: input.sandbox_id || undefined,
   });
 
   // Step 1: Ensure subject company exists (upsert by externalId)
@@ -93,7 +92,6 @@ export async function processDecisionCreation(
     clientId: input.client_id,
     subjectCompanyId: subjectCompany.id,
     dealId: deal?.id,
-    sandboxId: input.sandbox_id,
     decisionType: input.decision_type,
     summary,
     recommendedAction,
@@ -250,7 +248,6 @@ function formatDecisionResponse(
     subject_company_id: decision.subjectCompanyId,
     deal_id: decision.dealId || undefined,
     context_key: decision.context?.key || undefined,
-    sandbox_id: decision.sandboxId || undefined,
     decision_type: decision.decisionType,
     status: decision.status,
     urgency: decision.urgency,
