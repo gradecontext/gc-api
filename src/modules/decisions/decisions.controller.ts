@@ -92,6 +92,16 @@ export async function createDecisionHandler(
       return;
     }
 
+    if (error instanceof Error && error.message === 'Client not found') {
+      reply.code(404).send({ error: 'Not Found', message: 'Client not found' });
+      return;
+    }
+
+    if (error instanceof Error && error.message === 'Client account is inactive') {
+      reply.code(403).send({ error: 'Forbidden', message: 'Client account is inactive' });
+      return;
+    }
+
     logger.error('Error creating decision', error instanceof Error ? error : new Error(String(error)));
     throw error; // Let error middleware handle it
   }

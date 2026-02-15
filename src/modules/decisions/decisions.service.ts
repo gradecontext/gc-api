@@ -21,6 +21,7 @@ import {
   DecisionCreateData,
   DecisionUpdateData,
 } from './decisions.repository';
+import { prisma } from '../../db/client';
 import { CreateDecisionInput, ReviewDecisionInput, DecisionResponse } from './decisions.types';
 import { DecisionStatus, DecisionConfidence } from '@prisma/client';
 
@@ -41,6 +42,20 @@ export async function processDecisionCreation(
     companyName: input.subject_company.name,
     decisionType: input.decision_type,
   });
+
+  // Step 0: Verify the client is active
+  const client = await prisma.client.findUnique({
+    where: { id: input.client_id },
+    select: { id: true, active: true },
+  });
+
+  if (!client) {
+    throw new Error('Client not found');
+  }
+
+  if (!client.active) {
+    throw new Error('Client account is inactive');
+  }
 
   // Step 1: Ensure subject company exists (upsert by externalId)
   const subjectCompany = await findOrCreateSubjectCompany(input.client_id, {
