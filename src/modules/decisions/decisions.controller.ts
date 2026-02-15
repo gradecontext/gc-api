@@ -17,7 +17,7 @@ import { AuthenticatedRequest } from '../../middleware/auth.middleware';
 
 // Validation schemas
 const createDecisionSchema = z.object({
-  client_id: z.string().uuid(),
+  client_id: z.number().int().positive(),
   subject_company: z.object({
     external_id: z.string().min(1),
     name: z.string().min(1),
@@ -112,8 +112,8 @@ export async function reviewDecisionHandler(
     const body = reviewDecisionSchema.parse(request.body);
 
     // TODO: Extract user ID from authentication
-    // For now, use a placeholder or require it in body
-    const userId = (request as AuthenticatedRequest).userId || 'system';
+    // For now, use the authenticated user or a placeholder
+    const userId = (request as AuthenticatedRequest).userId || 0;
 
     logger.info('Decision review request received', {
       decisionId,

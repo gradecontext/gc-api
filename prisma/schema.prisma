@@ -19,7 +19,7 @@ datasource db {
 // that integrate ContextGrade into their onboarding/billing workflows.
 // e.g., "ACME Corp" (GPU seller using ContextGrade)
 model Client {
-  id            String     @id @default(uuid()) @db.Uuid
+  id            Int        @id @default(autoincrement())
   name          String
   slug          String     @unique
   domain        String?
@@ -51,8 +51,8 @@ enum ClientPlan {
 
 // Users are humans within client organizations who make, review, or view decisions.
 model User {
-  id        String   @id @default(uuid()) @db.Uuid
-  clientId  String   @map("client_id") @db.Uuid
+  id        Int      @id @default(autoincrement())
+  clientId  Int      @map("client_id")
   email     String
   name      String?
   title     String?  // Job title, e.g. "VP Sales", "Head of Partnerships"
@@ -83,8 +83,8 @@ enum UserRole {
 // e.g., "ABC Corp" (a company wanting to buy GPUs from ACME Corp)
 // Every webhook payload references a SubjectCompany via externalId.
 model SubjectCompany {
-  id         String       @id @default(uuid()) @db.Uuid
-  clientId   String       @map("client_id") @db.Uuid
+  id         Int          @id @default(autoincrement())
+  clientId   Int          @map("client_id")
   externalId String       @map("external_id") // Client's CRM/system identifier for this company
   name       String
   domain     String?
@@ -120,7 +120,7 @@ enum CompanySize {
 // Deals anchor decisions to revenue context (optional but recommended).
 model Deal {
   id                String     @id @default(uuid()) @db.Uuid
-  subjectCompanyId  String     @map("subject_company_id") @db.Uuid
+  subjectCompanyId  Int        @map("subject_company_id")
   crmDealId         String?    @map("crm_deal_id") // Salesforce / HubSpot ID
   amount            Decimal?   @db.Decimal(19, 2)
   currency          String?    @default("USD") @db.VarChar(3)
@@ -158,7 +158,7 @@ enum DealStage {
 // as skills.md knowledge files for foresight-driven decisions.
 model DecisionContext {
   id          String          @id @default(uuid()) @db.Uuid
-  clientId    String          @map("client_id") @db.Uuid
+  clientId    Int             @map("client_id")
   key         String // Machine-friendly slug: "payment_onboarding"
   name        String // Human-friendly label: "Payment Onboarding"
   description String?         @db.Text
@@ -198,8 +198,8 @@ enum ContextCategory {
 // and optionally a deal and context domain.
 model Decision {
   id                    String              @id @default(uuid()) @db.Uuid
-  clientId              String              @map("client_id") @db.Uuid
-  subjectCompanyId      String              @map("subject_company_id") @db.Uuid
+  clientId              Int                 @map("client_id")
+  subjectCompanyId      Int                 @map("subject_company_id")
   dealId                String?             @map("deal_id") @db.Uuid
   contextId             String?             @map("context_id") @db.Uuid
   decisionType          DecisionType        @map("decision_type")
@@ -210,7 +210,7 @@ model Decision {
   recommendedConfidence DecisionConfidence? @map("recommended_confidence")
   suggestedConditions   Json?               @map("suggested_conditions") // ["Require upfront payment", "Limit discount to 10%"]
   finalAction           String?             @map("final_action")
-  decidedBy             String?             @map("decided_by") @db.Uuid
+  decidedBy             Int?                @map("decided_by")
   expiresAt             DateTime?           @map("expires_at") @db.Timestamptz(6)
   createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -307,7 +307,7 @@ model DecisionContextSnapshot {
 model DecisionHumanOverride {
   id             String         @id @default(uuid()) @db.Uuid
   decisionId     String         @map("decision_id") @db.Uuid
-  userId         String         @map("user_id") @db.Uuid
+  userId         Int            @map("user_id")
   overrideAction OverrideAction @map("override_action")
   overrideReason String?        @map("override_reason") @db.Text
   createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -335,7 +335,7 @@ enum OverrideAction {
 model DecisionOutcome {
   id          String      @id @default(uuid()) @db.Uuid
   decisionId  String      @map("decision_id") @db.Uuid
-  userId      String?     @map("user_id") @db.Uuid
+  userId      Int?        @map("user_id")
   outcomeType OutcomeType @map("outcome_type")
   notes       String?     @db.Text
   recordedAt  DateTime    @default(now()) @map("recorded_at") @db.Timestamptz(6)
@@ -449,7 +449,7 @@ enum SourceType {
 // Versioned so you can track policy evolution over time.
 model Policy {
   id          String   @id @default(uuid()) @db.Uuid
-  clientId    String   @map("client_id") @db.Uuid
+  clientId    Int      @map("client_id")
   name        String
   description String?  @db.Text
   rules       Json? // Structured policy rules (conditions, thresholds, etc.)
@@ -473,7 +473,7 @@ model Policy {
 // This is critical for a system that sits in the execution path.
 model WebhookEvent {
   id              String             @id @default(uuid()) @db.Uuid
-  clientId        String             @map("client_id") @db.Uuid
+  clientId        Int                @map("client_id")
   externalEventId String?            @unique @map("external_event_id") // Idempotency key
   eventType       WebhookEventType   @map("event_type")
   payload         Json

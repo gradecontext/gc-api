@@ -13,7 +13,7 @@ import {
 export type { DecisionType, DecisionStatus, DecisionConfidence, DecisionUrgency };
 
 export interface CreateDecisionInput {
-  client_id: string;
+  client_id: number;
   subject_company: {
     external_id: string;
     name: string;
@@ -40,8 +40,8 @@ export interface ReviewDecisionInput {
 
 export interface DecisionResponse {
   id: string;
-  client_id: string;
-  subject_company_id: string;
+  client_id: number;
+  subject_company_id: number;
   deal_id?: string;
   context_key?: string;
   decision_type: DecisionType;
@@ -52,7 +52,7 @@ export interface DecisionResponse {
   recommended_confidence?: DecisionConfidence;
   suggested_conditions?: unknown;
   final_action?: string;
-  decided_by?: string;
+  decided_by?: number;
   created_at: Date;
   decided_at?: Date;
   recommendation?: {
@@ -68,7 +68,7 @@ export interface DecisionResponse {
     agent_model?: string;
   };
   overrides?: Array<{
-    user_id: string;
+    user_id: number;
     override_action: string;
     override_reason?: string;
     created_at: Date;
@@ -80,7 +80,7 @@ export interface DecisionResponse {
     confidence?: number;
   }>;
   subject_company?: {
-    id: string;
+    id: number;
     external_id: string;
     name: string;
     domain?: string;
@@ -88,7 +88,7 @@ export interface DecisionResponse {
     country?: string;
   };
   decided_by_user?: {
-    id: string;
+    id: number;
     name?: string;
     title?: string;
   };

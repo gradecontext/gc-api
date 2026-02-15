@@ -12,8 +12,8 @@ import { logger } from '../../utils/logger';
 import { Prisma } from '@prisma/client';
 
 export interface DecisionCreateData {
-  clientId: string;
-  subjectCompanyId: string;
+  clientId: number;
+  subjectCompanyId: number;
   dealId?: string;
   contextId?: string;
   decisionType: DecisionType;
@@ -33,7 +33,7 @@ export interface DecisionCreateData {
 export interface DecisionUpdateData {
   status: DecisionStatus;
   finalAction?: string;
-  decidedBy?: string;
+  decidedBy?: number;
   decidedAt: Date;
 }
 
@@ -85,9 +85,9 @@ export async function createDecision(data: DecisionCreateData) {
  */
 export async function findDecisionById(
   decisionId: string,
-  clientId?: string
+  clientId?: number
 ) {
-  const where: { id: string; clientId?: string } = { id: decisionId };
+  const where: { id: string; clientId?: number } = { id: decisionId };
   if (clientId) {
     where.clientId = clientId;
   }
@@ -144,7 +144,7 @@ export async function updateDecisionStatus(
   decisionId: string,
   data: DecisionUpdateData,
   overrideReason?: string,
-  overrideUserId?: string
+  overrideUserId?: number
 ) {
   logger.debug('Updating decision status', {
     decisionId,
@@ -185,7 +185,7 @@ export async function updateDecisionStatus(
  * Uses externalId for idempotent upsert within a client
  */
 export async function findOrCreateSubjectCompany(
-  clientId: string,
+  clientId: number,
   companyData: {
     externalId: string;
     name: string;

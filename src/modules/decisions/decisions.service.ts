@@ -128,7 +128,7 @@ export async function processDecisionCreation(
  */
 export async function processDecisionReview(
   decisionId: string,
-  userId: string,
+  userId: number,
   input: ReviewDecisionInput
 ): Promise<DecisionResponse> {
   logger.info('Processing decision review', {
@@ -204,7 +204,7 @@ export async function processDecisionReview(
  */
 export async function getDecisionById(
   decisionId: string,
-  clientId?: string
+  clientId?: number
 ): Promise<DecisionResponse | null> {
   const decision = await findDecisionById(decisionId, clientId);
   

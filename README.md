@@ -225,7 +225,7 @@ curl -X POST http://localhost:3000/api/v1/decisions \
   -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "client_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "client_id": 1,
     "subject_company": {
       "external_id": "crm-acme-corp-001",
       "name": "Acme Corp",
@@ -252,7 +252,7 @@ curl -X POST http://localhost:3000/api/v1/decisions \
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `client_id` | UUID | Yes | ContextGrade client (your organization) |
+| `client_id` | integer | Yes | ContextGrade client (your organization) |
 | `subject_company.external_id` | string | Yes | Your CRM/system identifier for the company being evaluated |
 | `subject_company.name` | string | Yes | Company name |
 | `subject_company.domain` | string | No | Company website URL |
@@ -271,8 +271,8 @@ curl -X POST http://localhost:3000/api/v1/decisions \
 ```json
 {
   "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "client_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "subject_company_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+  "client_id": 1,
+  "subject_company_id": 42,
   "deal_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
   "context_key": "payment_onboarding",
   "decision_type": "DISCOUNT",
@@ -314,7 +314,7 @@ curl -X POST http://localhost:3000/api/v1/decisions \
     "agent_model": "gpt-4"
   },
   "subject_company": {
-    "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+    "id": 42,
     "external_id": "crm-acme-corp-001",
     "name": "Acme Corp",
     "domain": "https://acmecorp.com",
@@ -362,8 +362,8 @@ curl -X POST http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02
 ```json
 {
   "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "client_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "subject_company_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+  "client_id": 1,
+  "subject_company_id": 42,
   "deal_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
   "context_key": "payment_onboarding",
   "decision_type": "DISCOUNT",
@@ -377,7 +377,7 @@ curl -X POST http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02
     "Limit discount to 10%"
   ],
   "final_action": "approve_with_conditions",
-  "decided_by": "d4e5f6a7-b8c9-0123-defg-234567890123",
+  "decided_by": 7,
   "created_at": "2026-02-12T10:30:00.000Z",
   "decided_at": "2026-02-12T10:35:00.000Z",
   "recommendation": {
@@ -408,7 +408,7 @@ curl -X POST http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02
     "agent_model": "gpt-4"
   },
   "subject_company": {
-    "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+    "id": 42,
     "external_id": "crm-acme-corp-001",
     "name": "Acme Corp",
     "domain": "https://acmecorp.com",
@@ -416,7 +416,7 @@ curl -X POST http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02
     "country": "USA"
   },
   "decided_by_user": {
-    "id": "d4e5f6a7-b8c9-0123-defg-234567890123",
+    "id": 7,
     "name": "Sarah Chen",
     "title": "VP Sales"
   },
@@ -445,8 +445,8 @@ curl -X POST http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02
 ```json
 {
   "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "client_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "subject_company_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+  "client_id": 1,
+  "subject_company_id": 42,
   "deal_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
   "context_key": "payment_onboarding",
   "decision_type": "DISCOUNT",
@@ -460,7 +460,7 @@ curl -X POST http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02
     "Limit discount to 10%"
   ],
   "final_action": "Approved 20% discount",
-  "decided_by": "d4e5f6a7-b8c9-0123-defg-234567890123",
+  "decided_by": 7,
   "created_at": "2026-02-12T10:30:00.000Z",
   "decided_at": "2026-02-12T10:40:00.000Z",
   "recommendation": {
@@ -487,7 +487,7 @@ curl -X POST http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02
     "agent_model": "gpt-4"
   },
   "subject_company": {
-    "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+    "id": 42,
     "external_id": "crm-acme-corp-001",
     "name": "Acme Corp",
     "domain": "https://acmecorp.com",
@@ -495,13 +495,13 @@ curl -X POST http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02
     "country": "USA"
   },
   "decided_by_user": {
-    "id": "d4e5f6a7-b8c9-0123-defg-234567890123",
+    "id": 7,
     "name": "Sarah Chen",
     "title": "VP Sales"
   },
   "overrides": [
     {
-      "user_id": "d4e5f6a7-b8c9-0123-defg-234567890123",
+      "user_id": 7,
       "override_action": "MODIFIED",
       "override_reason": "Strategic logo win — accepting at reduced margin, multi-year potential",
       "created_at": "2026-02-12T10:40:00.000Z"
@@ -563,8 +563,8 @@ curl http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02b2c3d479
 ```json
 {
   "id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-  "client_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "subject_company_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+  "client_id": 1,
+  "subject_company_id": 42,
   "deal_id": "c3d4e5f6-a7b8-9012-cdef-123456789012",
   "context_key": "payment_onboarding",
   "decision_type": "DISCOUNT",
@@ -578,7 +578,7 @@ curl http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02b2c3d479
     "Limit discount to 10%"
   ],
   "final_action": "Approved 20% discount",
-  "decided_by": "d4e5f6a7-b8c9-0123-defg-234567890123",
+  "decided_by": 7,
   "created_at": "2026-02-12T10:30:00.000Z",
   "decided_at": "2026-02-12T10:40:00.000Z",
   "recommendation": {
@@ -611,7 +611,7 @@ curl http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02b2c3d479
     "agent_model": "gpt-4"
   },
   "subject_company": {
-    "id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+    "id": 42,
     "external_id": "crm-acme-corp-001",
     "name": "Acme Corp",
     "domain": "https://acmecorp.com",
@@ -619,13 +619,13 @@ curl http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02b2c3d479
     "country": "USA"
   },
   "decided_by_user": {
-    "id": "d4e5f6a7-b8c9-0123-defg-234567890123",
+    "id": 7,
     "name": "Sarah Chen",
     "title": "VP Sales"
   },
   "overrides": [
     {
-      "user_id": "d4e5f6a7-b8c9-0123-defg-234567890123",
+      "user_id": 7,
       "override_action": "MODIFIED",
       "override_reason": "Strategic logo win — accepting at reduced margin, multi-year potential",
       "created_at": "2026-02-12T10:40:00.000Z"
