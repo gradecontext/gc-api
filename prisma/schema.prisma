@@ -26,6 +26,7 @@ model Client {
   apiKey        String?    @unique @map("api_key")
   webhookSecret String?    @map("webhook_secret")
   plan          ClientPlan @default(FREE)
+  active        Boolean    @default(true)
   settings      Json?      @default("{}") // Client-level config (thresholds, preferences)
   createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -91,6 +92,7 @@ model SubjectCompany {
   industry   String?
   country    String?
   size       CompanySize?
+  active     Boolean      @default(true)
   metadata   Json?        @default("{}") // Flexible extra data from CRM (address, tags, etc.)
   createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt  DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)

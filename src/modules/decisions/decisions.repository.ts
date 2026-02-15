@@ -182,7 +182,9 @@ export async function updateDecisionStatus(
 
 /**
  * Find or create subject company
- * Uses externalId for idempotent upsert within a client
+ * Uses externalId for idempotent upsert within a client.
+ * New companies default to active=true. Existing inactive companies
+ * are reactivated on upsert (a returning webhook implies intent).
  */
 export async function findOrCreateSubjectCompany(
   clientId: number,
@@ -209,6 +211,7 @@ export async function findOrCreateSubjectCompany(
       industry: companyData.industry || undefined,
       country: companyData.country || undefined,
       metadata: companyData.metadata ? (companyData.metadata as Prisma.InputJsonValue) : undefined,
+      active: true,
     },
     create: {
       clientId,
@@ -218,6 +221,23 @@ export async function findOrCreateSubjectCompany(
       industry: companyData.industry || null,
       country: companyData.country || null,
       metadata: companyData.metadata ? (companyData.metadata as Prisma.InputJsonValue) : undefined,
+    },
+  });
+}
+
+/**
+ * Find active subject company by clientId + externalId.
+ * Returns null if the company exists but is inactive.
+ */
+export async function findActiveSubjectCompany(
+  clientId: number,
+  externalId: string
+) {
+  return await prisma.subjectCompany.findFirst({
+    where: {
+      clientId,
+      externalId,
+      active: true,
     },
   });
 }
