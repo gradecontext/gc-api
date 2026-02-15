@@ -24,7 +24,7 @@ export async function decisionsRoutes(fastify: FastifyInstance) {
         type: 'object',
         required: ['client_id', 'subject_company', 'decision_type'],
         properties: {
-          client_id: { type: 'string', format: 'uuid' },
+          client_id: { type: 'integer' },
           subject_company: {
             type: 'object',
             required: ['external_id', 'name'],

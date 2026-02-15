@@ -16,8 +16,8 @@ import { logger } from '../utils/logger';
 import { prisma } from '../db/client';
 
 export interface AuthenticatedRequest extends FastifyRequest {
-  clientId?: string;
-  userId?: string;
+  clientId?: number;
+  userId?: number;
 }
 
 /**
@@ -51,7 +51,7 @@ function extractApiKey(request: FastifyRequest): string | null {
  * Resolve API key to a client.
  * Returns the clientId if found, null otherwise.
  */
-async function resolveClientApiKey(apiKey: string): Promise<string | null> {
+async function resolveClientApiKey(apiKey: string): Promise<number | null> {
   const client = await prisma.client.findUnique({
     where: { apiKey },
     select: { id: true },
