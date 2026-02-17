@@ -12,6 +12,78 @@ datasource db {
 }
 
 // ============================================================
+// PLATFORM ADMINISTRATION
+// ============================================================
+
+// Admins are ContextGrade platform operators — internal staff who
+// manage clients, review leads, and oversee the system.
+model Admin {
+  id          Int         @id @default(autoincrement())
+  fullName    String      @map("full_name") @db.Text
+  email       String      @unique @db.Text
+  active      Boolean     @default(true)
+  accessLevel AccessLevel @default(STAFF) @map("access_level")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  leads Lead[]
+
+  @@map("admins")
+}
+
+enum AccessLevel {
+  SUPER_ADMIN
+  STAFF
+  DEVELOPER
+
+  @@map("access_level")
+}
+
+// ============================================================
+// LEAD GENERATION
+// ============================================================
+
+// Leads capture inbound interest before they become clients/users.
+// Tracks the full lifecycle from initial contact to conversion.
+model Lead {
+  id                 Int         @id @default(autoincrement())
+  email              String      @db.Text
+  fullName           String?     @map("full_name") @db.Text
+  companyName        String?     @map("company_name") @db.Text
+  companySize        String?     @map("company_size") @db.Text
+  companyWebsite     String?     @map("company_website") @db.Text
+  planInterest       ClientPlan? @map("plan_interest")
+  message            String?     @db.Text
+  contacted          Boolean     @default(false)
+  status             LeadStatus  @default(NEW)
+  convertedToUserId  Int?        @map("converted_to_user_id")
+  convertedToClientId Int?       @map("converted_to_client_id")
+  representedBy      Int?        @map("represented_by")
+  createdAt          DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  convertedUser   User?   @relation(fields: [convertedToUserId], references: [id], onDelete: SetNull)
+  convertedClient Client? @relation("LeadConvertedClient", fields: [convertedToClientId], references: [id], onDelete: SetNull)
+  representedByAdmin Admin? @relation(fields: [representedBy], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([status])
+  @@index([representedBy])
+  @@map("leads")
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  PENDING
+  APPROVED
+  REJECTED
+  CONVERTED
+
+  @@map("lead_status")
+}
+
+// ============================================================
 // CORE ENTITIES
 // ============================================================
 
@@ -19,17 +91,26 @@ datasource db {
 // that integrate ContextGrade into their onboarding/billing workflows.
 // e.g., "ACME Corp" (GPU seller using ContextGrade)
 model Client {
-  id            Int        @id @default(autoincrement())
-  name          String
-  slug          String     @unique
-  domain        String?
-  apiKey        String?    @unique @map("api_key")
-  webhookSecret String?    @map("webhook_secret")
-  plan          ClientPlan @default(FREE)
-  active        Boolean    @default(true)
-  settings      Json?      @default("{}") // Client-level config (thresholds, preferences)
-  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id              Int        @id @default(autoincrement())
+  name            String
+  slug            String     @unique
+  domain          String?
+  apiKey          String?    @unique @map("api_key")
+  webhookSecret   String?    @map("webhook_secret")
+  plan            ClientPlan @default(FREE)
+  active          Boolean    @default(true)
+  verified        Boolean    @default(false)
+  approved        Boolean    @default(false)
+  details         String?    @db.Text
+  logo            String?    @db.Text
+  coverImage      String?    @map("cover_image") @db.Text
+  clientWebsite   String?    @map("client_website") @db.Text
+  clientX         String?    @map("client_x") @db.Text
+  clientLinkedin  String?    @map("client_linkedin") @db.Text
+  clientInstagram String?    @map("client_instagram") @db.Text
+  settings        Json?      @default("{}") // Client-level config (thresholds, preferences)
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   users            User[]
   subjectCompanies SubjectCompany[]
@@ -37,6 +118,8 @@ model Client {
   policies         Policy[]
   decisionContexts DecisionContext[]
   webhookEvents    WebhookEvent[]
+  convertedLeads   Lead[]     @relation("LeadConvertedClient")
+
   @@index([slug])
   @@map("clients")
 }
@@ -51,24 +134,37 @@ enum ClientPlan {
 }
 
 // Users are humans within client organizations who make, review, or view decisions.
+// supabaseAuthId links to Supabase auth.users for authentication.
 model User {
-  id        Int      @id @default(autoincrement())
-  clientId  Int      @map("client_id")
-  email     String
-  name      String?
-  title     String?  // Job title, e.g. "VP Sales", "Head of Partnerships"
-  role      UserRole @default(VIEWER)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id              Int      @id @default(autoincrement())
+  supabaseAuthId  String?  @unique @map("supabase_auth_id") @db.Uuid
+  clientId        Int      @map("client_id")
+  email           String
+  name            String?
+  title           String?  // Job title, e.g. "VP Sales", "Head of Partnerships"
+  role            UserRole @default(VIEWER)
+  active          Boolean  @default(true)
+  verified        Boolean  @default(true)
+  displayName     String?  @map("display_name") @db.VarChar(150)
+  userName        String?  @map("user_name") @db.VarChar(100)
+  imageUrl        String?  @map("image_url")
+  userImage       String?  @map("user_image") @db.Text
+  userImageCover  String?  @map("user_image_cover") @db.Text
+  userBioDetail   String?  @map("user_bio_detail") @db.Text
+  userBioBrief    String?  @map("user_bio_brief") @db.VarChar(255)
+  gender          Gender?
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   client            Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   decisionsMade     Decision[]              @relation("DecisionMaker")
   decisionOverrides DecisionHumanOverride[]
   decisionOutcomes  DecisionOutcome[]
+  convertedLeads    Lead[]
 
   @@unique([clientId, email])
   @@index([clientId])
+  @@index([supabaseAuthId])
   @@map("users")
 }
 
@@ -78,6 +174,24 @@ enum UserRole {
   APPROVER
   VIEWER
   @@map("user_role")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  NON_BINARY
+  GENDERQUEER
+  GENDERFLUID
+  AGENDER
+  BIGENDER
+  TWO_SPIRIT
+  TRANSGENDER_MALE
+  TRANSGENDER_FEMALE
+  INTERSEX
+  PREFER_NOT_TO_SAY
+  OTHER
+
+  @@map("gender")
 }
 
 // SubjectCompanies are the entities being evaluated — the client's leads/prospects.

@@ -15,6 +15,9 @@ import { env } from './config/env';
 import { logger } from './utils/logger';
 import { errorHandler } from './middleware/error.middleware';
 import { decisionsRoutes } from './modules/decisions/decisions.routes';
+import { usersRoutes } from './modules/users/users.routes';
+import { adminsRoutes } from './modules/admins/admins.routes';
+import { leadsRoutes } from './modules/leads/leads.routes';
 
 /**
  * Create and configure Fastify application instance
@@ -67,6 +70,9 @@ export async function buildApp() {
 
   // Register route modules
   await app.register(decisionsRoutes, { prefix: '/api/v1' });
+  await app.register(usersRoutes, { prefix: '/api/v1' });
+  await app.register(adminsRoutes, { prefix: '/api/v1' });
+  await app.register(leadsRoutes, { prefix: '/api/v1' });
 
   logger.info('Application configured', {
     environment: env.NODE_ENV,

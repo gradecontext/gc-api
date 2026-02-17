@@ -29,6 +29,7 @@
   "dependencies": {
     "@fastify/cors": "^9.0.1",
     "@prisma/client": "^5.19.1",
+    "@supabase/supabase-js": "^2.95.3",
     "dotenv": "^17.2.4",
     "fastify": "^4.26.2",
     "openai": "^4.52.7",
