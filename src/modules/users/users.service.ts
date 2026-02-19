@@ -9,9 +9,9 @@
  * - User lookup
  */
 
-import { logger } from '../../utils/logger';
-import { supabaseAdmin } from '../../lib/supabase';
-import { prisma } from '../../db/client';
+import { logger } from "../../utils/logger";
+import { supabaseAdmin } from "../../lib/supabase";
+import { prisma } from "../../db/client";
 import {
   createUser,
   findUserBySupabaseId,
@@ -20,22 +20,18 @@ import {
   updateUser,
   UserCreateData,
   UserUpdateData,
-} from './users.repository';
-import {
-  CreateUserInput,
-  UpdateUserInput,
-  UserResponse,
-} from './users.types';
+} from "./users.repository";
+import { CreateUserInput, UpdateUserInput, UserResponse } from "./users.types";
 import {
   findClientById,
   findClientByDomain,
-} from '../clients/clients.repository';
+} from "../clients/clients.repository";
 import {
   clientCreate,
   extractDomainFromEmail,
   formatClientResponse,
-} from '../clients/clients.service';
-import { ClientResponse } from '../clients/clients.types';
+} from "../clients/clients.service";
+import { ClientResponse } from "../clients/clients.types";
 
 /**
  * Create a user after verifying their Supabase auth identity.
@@ -56,11 +52,11 @@ import { ClientResponse } from '../clients/clients.types';
 export async function createVerifiedUser(
   supabaseAuthId: string,
   _supabaseEmail: string | null,
-  input: CreateUserInput
+  input: CreateUserInput,
 ): Promise<UserResponse> {
   const clientInput = input.client;
 
-  logger.info('Creating verified user', {
+  logger.info("Creating verified user", {
     supabaseAuthId,
     hasClientId: !!clientInput.client_id,
     hasClientName: !!clientInput.client_name,
@@ -68,26 +64,29 @@ export async function createVerifiedUser(
   });
 
   // Step 1: Verify the Supabase user exists via admin API
+  if (!supabaseAdmin) {
+    throw new Error("Supabase secret key not configured — cannot verify user identity");
+  }
   const { data: supabaseUser, error: supabaseError } =
     await supabaseAdmin.auth.admin.getUserById(supabaseAuthId);
 
   if (supabaseError || !supabaseUser?.user) {
-    logger.warn('Supabase user not found', {
+    logger.warn("Supabase user not found", {
       supabaseAuthId,
       error: supabaseError?.message,
     });
-    throw new Error('Supabase user not found');
+    throw new Error("Supabase user not found");
   }
 
   // Step 2: Verify email consistency — we trust Supabase, not the payload
   const verifiedEmail = supabaseUser.user.email;
   if (verifiedEmail && verifiedEmail !== input.email) {
-    logger.warn('Email mismatch between Supabase and input', {
+    logger.warn("Email mismatch between Supabase and input", {
       supabaseEmail: verifiedEmail,
       inputEmail: input.email,
     });
     throw new Error(
-      'Email does not match Supabase account. Use the email associated with your authentication.'
+      "Email does not match Supabase account. Use the email associated with your authentication.",
     );
   }
 
@@ -104,10 +103,10 @@ export async function createVerifiedUser(
       const existingClient = await findClientById(clientInput.client_id, tx);
 
       if (!existingClient) {
-        throw new Error('Client not found');
+        throw new Error("Client not found");
       }
       if (!existingClient.active) {
-        throw new Error('Client account is inactive');
+        throw new Error("Client account is inactive");
       }
 
       resolvedClientId = existingClient.id;
@@ -119,12 +118,12 @@ export async function createVerifiedUser(
 
       if (existingByDomain) {
         if (!existingByDomain.active) {
-          throw new Error('Client account is inactive');
+          throw new Error("Client account is inactive");
         }
         resolvedClientId = existingByDomain.id;
         resolvedClient = formatClientResponse(existingByDomain);
 
-        logger.info('Matched existing client by domain', {
+        logger.info("Matched existing client by domain", {
           domain,
           clientId: resolvedClientId,
         });
@@ -144,11 +143,11 @@ export async function createVerifiedUser(
             settings: clientInput.settings,
           },
           domain,
-          tx
+          tx,
         );
         resolvedClientId = resolvedClient.id;
 
-        logger.info('Created new client for user', {
+        logger.info("Created new client for user", {
           domain,
           clientId: resolvedClientId,
           slug: resolvedClient.slug,
@@ -159,18 +158,16 @@ export async function createVerifiedUser(
     // --- Duplicate checks ---
     const existingBySupabase = await findUserBySupabaseId(supabaseAuthId, tx);
     if (existingBySupabase) {
-      throw new Error('User already exists for this Supabase account');
+      throw new Error("User already exists for this Supabase account");
     }
 
     const existingByEmail = await findUserByClientEmail(
       resolvedClientId,
       trustedEmail,
-      tx
+      tx,
     );
     if (existingByEmail) {
-      throw new Error(
-        'A user with this email already exists for this client'
-      );
+      throw new Error("A user with this email already exists for this client");
     }
 
     // --- Create user ---
@@ -196,7 +193,7 @@ export async function createVerifiedUser(
     return { user: createdUser, client: resolvedClient };
   });
 
-  logger.info('User created successfully', {
+  logger.info("User created successfully", {
     userId: user.id,
     supabaseAuthId: user.supabaseAuthId,
     clientId: user.clientId,
@@ -213,7 +210,7 @@ export async function createVerifiedUser(
  * Get the current user's profile from their Supabase auth ID
  */
 export async function getUserBySupabaseId(
-  supabaseAuthId: string
+  supabaseAuthId: string,
 ): Promise<UserResponse | null> {
   const user = await findUserBySupabaseId(supabaseAuthId);
   if (!user) return null;
@@ -224,7 +221,7 @@ export async function getUserBySupabaseId(
  * Get user by internal ID
  */
 export async function getUserById(
-  userId: number
+  userId: number,
 ): Promise<UserResponse | null> {
   const user = await findUserById(userId);
   if (!user) return null;
@@ -237,16 +234,16 @@ export async function getUserById(
 export async function updateUserProfile(
   userId: number,
   supabaseAuthId: string,
-  input: UpdateUserInput
+  input: UpdateUserInput,
 ): Promise<UserResponse> {
   // Verify the user belongs to this Supabase account
   const existing = await findUserById(userId);
   if (!existing) {
-    throw new Error('User not found');
+    throw new Error("User not found");
   }
 
   if (existing.supabaseAuthId !== supabaseAuthId) {
-    throw new Error('Not authorized to update this user');
+    throw new Error("Not authorized to update this user");
   }
 
   const updateData: UserUpdateData = {
@@ -264,7 +261,7 @@ export async function updateUserProfile(
 
   const user = await updateUser(userId, updateData);
 
-  logger.info('User profile updated', { userId: user.id });
+  logger.info("User profile updated", { userId: user.id });
 
   return formatUserResponse(user);
 }
@@ -273,7 +270,7 @@ export async function updateUserProfile(
  * Format database user to API response
  */
 function formatUserResponse(
-  user: NonNullable<Awaited<ReturnType<typeof findUserBySupabaseId>>>
+  user: NonNullable<Awaited<ReturnType<typeof findUserBySupabaseId>>>,
 ): UserResponse {
   return {
     id: user.id,

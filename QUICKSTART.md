@@ -73,20 +73,20 @@ npm run build
 npm start
 ```
 
-Server starts on `http://localhost:3000`
+Server starts on `http://localhost:8080`
 
 ## 🧪 Test the Service
 
 ### 1. Health Check
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:8080/health
 ```
 
 ### 2. Create a Decision (Webhook Simulation)
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/decisions \
+curl -X POST http://localhost:8080/api/v1/decisions \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
@@ -116,7 +116,7 @@ This will:
 
 ```bash
 # Get decision ID from previous response, then:
-curl -X POST http://localhost:3000/api/v1/decisions/{DECISION_ID}/review \
+curl -X POST http://localhost:8080/api/v1/decisions/{DECISION_ID}/review \
   -H "Content-Type: application/json" \
   -H "X-API-Key: your-api-key" \
   -d '{
@@ -128,7 +128,7 @@ curl -X POST http://localhost:3000/api/v1/decisions/{DECISION_ID}/review \
 ### 4. Fetch Decision (Audit View)
 
 ```bash
-curl http://localhost:3000/api/v1/decisions/{DECISION_ID} \
+curl http://localhost:8080/api/v1/decisions/{DECISION_ID} \
   -H "X-API-Key: your-api-key"
 ```
 

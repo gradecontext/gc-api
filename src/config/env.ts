@@ -7,7 +7,7 @@ import { z } from "zod";
 
 const envSchema = z.object({
   // Server
-  PORT: z.string().default("3000"),
+  PORT: z.string().default("8080"),
   NODE_ENV: z
     .enum(["development", "production", "test"])
     .default("development"),
@@ -18,8 +18,8 @@ const envSchema = z.object({
 
   // Supabase
   SUPABASE_URL: z.string().url(),
-  SUPABASE_ANON_KEY: z.string(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string(),
+  SUPABASE_PUBLISHABLE_DEFAULT_KEY: z.string(),
+  SUPABASE_SECRET_KEY: z.string().optional(),
 
   // AI Service
   OPENAI_API_KEY: z.string().optional(),
@@ -41,8 +41,8 @@ function getEnv(): Env {
     HOST: process.env.HOST,
     DATABASE_URL: process.env.DATABASE_URL,
     SUPABASE_URL: process.env.SUPABASE_URL,
-    SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
-    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    SUPABASE_PUBLISHABLE_DEFAULT_KEY: process.env.SUPABASE_PUBLISHABLE_DEFAULT_KEY,
+    SUPABASE_SECRET_KEY: process.env.SUPABASE_SECRET_KEY,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     API_KEY: process.env.API_KEY,
@@ -56,7 +56,7 @@ function getEnv(): Env {
       throw new Error(
         `Invalid environment variables:\n${error.errors
           .map((e) => `  ${e.path.join(".")}: ${e.message}`)
-          .join("\n")}`
+          .join("\n")}`,
       );
     }
     throw error;

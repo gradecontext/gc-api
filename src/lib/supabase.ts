@@ -2,14 +2,19 @@
  * Supabase Client
  *
  * Two clients for different use cases:
- * - supabaseAdmin: Uses service role key for server-side operations
+ * - supabaseAdmin: Uses secret key for server-side operations
  *   (user verification, admin tasks). Bypasses RLS.
- * - supabaseClient: Uses anon key for operations that should
- *   respect RLS policies.
+ *   Only available when SUPABASE_SECRET_KEY is configured.
+ * - supabaseClient: Uses publishable key for operations that
+ *   should respect RLS policies.
+ *
+ * Key format (new Supabase convention):
+ *   Publishable key (sb_publishable_...) — safe to expose client-side
+ *   Secret key (sb_secret_...)           — backend only, elevated privileges
  */
 
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { env } from '../config/env';
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { env } from "../config/env";
 
 const globalForSupabase = globalThis as unknown as {
   supabaseAdmin: SupabaseClient | undefined;
@@ -17,32 +22,29 @@ const globalForSupabase = globalThis as unknown as {
 };
 
 /**
- * Admin client — uses service role key (bypasses RLS).
+ * Admin client — uses secret key (bypasses RLS).
  * Use for server-side user verification and admin operations.
+ * Will be null if SUPABASE_SECRET_KEY is not configured.
  */
-export const supabaseAdmin: SupabaseClient =
+export const supabaseAdmin: SupabaseClient | null =
   globalForSupabase.supabaseAdmin ??
-  createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
+  (env.SUPABASE_SECRET_KEY
+    ? createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
+        auth: { autoRefreshToken: false, persistSession: false },
+      })
+    : null);
 
 /**
- * Public client — uses anon key (respects RLS).
+ * Public client — uses publishable key (respects RLS).
  * Use for operations that should go through row-level security.
  */
 export const supabaseClient: SupabaseClient =
   globalForSupabase.supabaseClient ??
-  createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
+  createClient(env.SUPABASE_URL, env.SUPABASE_PUBLISHABLE_DEFAULT_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false },
   });
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForSupabase.supabaseAdmin = supabaseAdmin;
+if (process.env.NODE_ENV !== "production") {
+  if (supabaseAdmin) globalForSupabase.supabaseAdmin = supabaseAdmin;
   globalForSupabase.supabaseClient = supabaseClient;
 }

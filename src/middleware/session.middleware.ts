@@ -9,9 +9,9 @@
  * - Optional: Sets supabaseUserId to null if no token, continues
  */
 
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { supabaseAdmin } from '../lib/supabase';
-import { logger } from '../utils/logger';
+import { FastifyRequest, FastifyReply } from "fastify";
+import { supabaseAdmin } from "../lib/supabase";
+import { logger } from "../utils/logger";
 
 export interface SessionRequest extends FastifyRequest {
   supabaseUserId?: string | null;
@@ -23,7 +23,7 @@ export interface SessionRequest extends FastifyRequest {
  */
 function extractBearerToken(request: FastifyRequest): string | null {
   const authHeader = request.headers.authorization;
-  if (authHeader?.startsWith('Bearer ')) {
+  if (authHeader?.startsWith("Bearer ")) {
     return authHeader.substring(7);
   }
   return null;
@@ -46,13 +46,16 @@ export function sessionAuth(isRequired: boolean = true) {
         return;
       }
       reply.code(401).send({
-        error: 'Unauthorized',
-        message: 'Bearer token is required',
+        error: "Unauthorized",
+        message: "Bearer token is required",
       });
       return;
     }
 
     try {
+      if (!supabaseAdmin) {
+        throw new Error("Supabase secret key not configured — cannot verify sessions");
+      }
       const {
         data: { user },
         error,
@@ -64,13 +67,13 @@ export function sessionAuth(isRequired: boolean = true) {
           request.supabaseUserEmail = null;
           return;
         }
-        logger.warn('Invalid Supabase session', {
+        logger.warn("Invalid Supabase session", {
           error: error?.message,
           ip: request.ip,
         });
         reply.code(401).send({
-          error: 'Unauthorized',
-          message: 'Invalid or expired session',
+          error: "Unauthorized",
+          message: "Invalid or expired session",
         });
         return;
       }
@@ -78,15 +81,15 @@ export function sessionAuth(isRequired: boolean = true) {
       request.supabaseUserId = user.id;
       request.supabaseUserEmail = user.email ?? null;
 
-      logger.debug('Supabase session verified', {
+      logger.debug("Supabase session verified", {
         userId: user.id,
         email: user.email,
         ip: request.ip,
       });
     } catch (err) {
       logger.error(
-        'Session verification error',
-        err instanceof Error ? err : new Error(String(err))
+        "Session verification error",
+        err instanceof Error ? err : new Error(String(err)),
       );
 
       if (!isRequired) {
@@ -95,8 +98,8 @@ export function sessionAuth(isRequired: boolean = true) {
         return;
       }
       reply.code(401).send({
-        error: 'Unauthorized',
-        message: 'Authentication failed',
+        error: "Unauthorized",
+        message: "Authentication failed",
       });
     }
   };

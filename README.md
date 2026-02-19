@@ -118,7 +118,7 @@ ContextGrade uses **infrastructure-level environment isolation** — sandbox and
 
 | File | Purpose | Endpoint |
 |---|---|---|
-| `.env` | Local development (default) | `localhost:3000` |
+| `.env` | Local development (default) | `localhost:8080` |
 | `.env.sandbox` | Sandbox Supabase instance | `sandbox.contextgrade.com` |
 | `.env.prod` | Production Supabase instance | `api.contextgrade.com` |
 
@@ -164,7 +164,7 @@ npm run build
 npm start
 ```
 
-The server will start on `http://localhost:3000` (or your configured PORT).
+The server will start on `http://localhost:8080` (or your configured PORT).
 
 ---
 
@@ -187,7 +187,7 @@ Returns service health status. No authentication required.
 **Sample Request:**
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:8080/health
 ```
 
 **Sample Response (200):**
@@ -221,7 +221,7 @@ Content-Type: application/json
 **Sample Request:**
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/decisions \
+curl -X POST http://localhost:8080/api/v1/decisions \
   -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -348,7 +348,7 @@ Content-Type: application/json
 **Sample Request:**
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02b2c3d479/review \
+curl -X POST http://localhost:8080/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02b2c3d479/review \
   -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -430,7 +430,7 @@ curl -X POST http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02
 **Sample Request:**
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02b2c3d479/review \
+curl -X POST http://localhost:8080/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02b2c3d479/review \
   -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -554,7 +554,7 @@ X-API-Key: your-api-key
 **Sample Request:**
 
 ```bash
-curl http://localhost:3000/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02b2c3d479 \
+curl http://localhost:8080/api/v1/decisions/f47ac10b-58cc-4372-a567-0e02b2c3d479 \
   -H "X-API-Key: your-api-key"
 ```
 
