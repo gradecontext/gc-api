@@ -4,7 +4,6 @@
  */
 
 import { FastifyError, FastifyRequest, FastifyReply } from 'fastify';
-import { Prisma } from '@prisma/client';
 import { ZodError } from 'zod';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
@@ -15,10 +14,27 @@ interface ErrorResponse {
   details?: unknown;
 }
 
+interface PrismaKnownError {
+  code: string;
+  message: string;
+  meta?: unknown;
+  clientVersion: string;
+}
+
 /**
- * Format Prisma errors into user-friendly messages
+ * Detect Prisma errors via duck typing instead of instanceof.
+ * Works across both the Node.js and Workers Prisma generators.
  */
-function formatPrismaError(error: Prisma.PrismaClientKnownRequestError): ErrorResponse {
+function isPrismaKnownError(error: unknown): error is PrismaKnownError {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    'clientVersion' in error &&
+    typeof (error as any).code === 'string'
+  );
+}
+
+function formatPrismaError(error: PrismaKnownError): ErrorResponse {
   switch (error.code) {
     case 'P2002':
       return {
@@ -79,7 +95,7 @@ export async function errorHandler(
   if (error instanceof ZodError) {
     response = formatZodError(error);
     statusCode = 400;
-  } else if (error instanceof Prisma.PrismaClientKnownRequestError) {
+  } else if (isPrismaKnownError(error)) {
     response = formatPrismaError(error);
     statusCode = error.code === 'P2025' ? 404 : 409;
   } else if ('statusCode' in error && typeof error.statusCode === 'number') {

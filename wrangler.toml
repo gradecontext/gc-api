@@ -1,0 +1,35 @@
+#:schema node_modules/wrangler/config-schema.json
+
+name = "contextgrade"
+main = "src/worker.ts"
+compatibility_date = "2026-02-26"
+compatibility_flags = ["nodejs_compat"]
+
+[observability]
+enabled = true
+
+[vars]
+NODE_ENV = "production"
+LOG_LEVEL = "info"
+PORT = "8080"
+HOST = "0.0.0.0"
+
+[build]
+command = "npx prisma generate"
+
+# ─── Secrets ────────────────────────────────────────────────
+# NEVER put secrets in this file. Use one of:
+#
+#   Local dev:   .dev.vars   (gitignored, loaded by `wrangler dev`)
+#   Production:  wrangler secret put <KEY>
+#
+# Required secrets:
+#   DATABASE_URL
+#   SUPABASE_URL
+#   SUPABASE_PUBLISHABLE_DEFAULT_KEY
+#   API_KEY
+#
+# Optional secrets:
+#   SUPABASE_SECRET_KEY
+#   OPENAI_API_KEY
+#   ANTHROPIC_API_KEY

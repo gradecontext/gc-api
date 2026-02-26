@@ -54,6 +54,55 @@ export function extractDomainFromEmail(email: string): string {
 }
 
 /**
+ * Public / shared email providers whose domains should never be used
+ * for client-matching. Users with these domains are allowed to sign up
+ * but won't be auto-grouped into the same client by domain.
+ */
+const PUBLIC_EMAIL_DOMAINS = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'google.com',
+  'outlook.com',
+  'hotmail.com',
+  'live.com',
+  'msn.com',
+  'yahoo.com',
+  'yahoo.co.uk',
+  'yahoo.co.in',
+  'ymail.com',
+  'aol.com',
+  'icloud.com',
+  'me.com',
+  'mac.com',
+  'protonmail.com',
+  'proton.me',
+  'zoho.com',
+  'zohomail.com',
+  'mail.com',
+  'gmx.com',
+  'gmx.net',
+  'fastmail.com',
+  'tutanota.com',
+  'tuta.io',
+  'hey.com',
+  'pm.me',
+  'yandex.com',
+  'yandex.ru',
+  'qq.com',
+  '163.com',
+  '126.com',
+  'rediffmail.com',
+]);
+
+/**
+ * Returns true when the domain belongs to a public/shared email provider.
+ * These domains must not be used for client-level domain matching.
+ */
+export function isPublicEmailDomain(domain: string): boolean {
+  return PUBLIC_EMAIL_DOMAINS.has(domain.toLowerCase());
+}
+
+/**
  * Create a new client.
  *
  * - Generates a slug from the name (appends random suffix on collision)
@@ -132,6 +181,8 @@ export function formatClientResponse(
     client_linkedin: client.clientLinkedin,
     client_instagram: client.clientInstagram,
     settings: client.settings,
+    added_by: client.addedBy,
+    modified_by: client.modifiedBy,
     created_at: client.createdAt,
     updated_at: client.updatedAt,
   };

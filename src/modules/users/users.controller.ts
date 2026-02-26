@@ -14,6 +14,7 @@ import {
   getUserBySupabaseId,
   getUserById,
   updateUserProfile,
+  type CreateUserResult,
 } from './users.service';
 
 // Validation schemas
@@ -129,16 +130,26 @@ export async function createUserHandler(
       email: body.email,
     });
 
-    const user = await createVerifiedUser(
+    const result: CreateUserResult = await createVerifiedUser(
       supabaseUserId,
       supabaseUserEmail ?? null,
       body
     );
 
-    reply.code(201).send({
-      success: true,
-      data: user,
-    });
+    if (result.created) {
+      reply.code(201).send({
+        success: true,
+        message: 'User created successfully',
+        data: result.user,
+      });
+    } else {
+      reply.code(200).send({
+        success: true,
+        message: 'User already registered',
+        existing: true,
+        data: result.user,
+      });
+    }
   } catch (error) {
     if (error instanceof z.ZodError) {
       reply.code(400).send({
@@ -151,10 +162,8 @@ export async function createUserHandler(
 
     if (error instanceof Error) {
       const errorMap: Record<string, number> = {
-        'Supabase user not found': 404,
         'Client not found': 404,
         'Client account is inactive': 403,
-        'User already exists for this Supabase account': 409,
         'A user with this email already exists for this client': 409,
         'Email does not match Supabase account. Use the email associated with your authentication.': 400,
         'Company data missing. Either client_id or client_name is required.': 400,

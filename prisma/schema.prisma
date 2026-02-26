@@ -2,8 +2,16 @@
 // Multi-client decision trace store and context graph foundation
 // "Decision intelligence for onboarding, pricing, and trust."
 
+// Node.js — binary engine for local dev (tsx watch)
 generator client {
   provider = "prisma-client-js"
+}
+
+// Cloudflare Workers — WASM engine for edge deployment
+generator worker {
+  provider = "prisma-client"
+  runtime  = "cloudflare"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
@@ -109,9 +117,13 @@ model Client {
   clientLinkedin  String?    @map("client_linkedin") @db.Text
   clientInstagram String?    @map("client_instagram") @db.Text
   settings        Json?      @default("{}") // Client-level config (thresholds, preferences)
+  addedBy         Int?       @map("added_by")
+  modifiedBy      Int?       @map("modified_by")
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  addedByUser      User?      @relation("ClientAddedBy", fields: [addedBy], references: [id], onDelete: SetNull)
+  modifiedByUser   User?      @relation("ClientModifiedBy", fields: [modifiedBy], references: [id], onDelete: SetNull)
   users            User[]
   subjectCompanies SubjectCompany[]
   decisions        Decision[]
@@ -121,6 +133,8 @@ model Client {
   convertedLeads   Lead[]     @relation("LeadConvertedClient")
 
   @@index([slug])
+  @@index([addedBy])
+  @@index([modifiedBy])
   @@map("clients")
 }
 
@@ -157,6 +171,8 @@ model User {
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   client            Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientsAdded      Client[]                @relation("ClientAddedBy")
+  clientsModified   Client[]                @relation("ClientModifiedBy")
   decisionsMade     Decision[]              @relation("DecisionMaker")
   decisionOverrides DecisionHumanOverride[]
   decisionOutcomes  DecisionOutcome[]

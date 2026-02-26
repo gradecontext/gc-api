@@ -1,0 +1,9 @@
+# Local development secrets for `wrangler dev`
+# Copy to .dev.vars and fill in your values.
+# .dev.vars is gitignored — never commit it.
+
+DATABASE_URL=postgresql://user:password@localhost:5432/contextgrade?sslmode=require
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_PUBLISHABLE_DEFAULT_KEY=sb_publishable_your-key
+OPENAI_API_KEY=sk-your-openai-key
+API_KEY=your-api-key

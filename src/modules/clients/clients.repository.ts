@@ -46,6 +46,8 @@ export const clientSelect = {
   clientLinkedin: true,
   clientInstagram: true,
   settings: true,
+  addedBy: true,
+  modifiedBy: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -106,6 +108,26 @@ export async function findClientByDomain(
   const db = tx ?? prisma;
   return await db.client.findFirst({
     where: { domain },
+    select: clientSelect,
+  });
+}
+
+/**
+ * Update the added_by / modified_by audit fields on a client.
+ * Called right after the user record is created within the same transaction.
+ */
+export async function updateClientAuditFields(
+  clientId: number,
+  userId: number,
+  tx?: Prisma.TransactionClient
+) {
+  const db = tx ?? prisma;
+  return await db.client.update({
+    where: { id: clientId },
+    data: {
+      addedBy: userId,
+      modifiedBy: userId,
+    },
     select: clientSelect,
   });
 }

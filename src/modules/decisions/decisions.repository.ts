@@ -7,9 +7,8 @@
  */
 
 import { prisma } from '../../db/client';
-import { DecisionType, DecisionStatus, DecisionConfidence, RelationshipType } from '@prisma/client';
+import { DecisionType, DecisionStatus, DecisionConfidence, RelationshipType, Prisma } from '@prisma/client';
 import { logger } from '../../utils/logger';
-import { Prisma } from '@prisma/client';
 
 export interface DecisionCreateData {
   clientId: number;
@@ -247,7 +246,7 @@ export async function findActiveSubjectCompany(
  * Creates deal record if deal information provided
  */
 export async function findOrCreateDeal(
-  subjectCompanyId: string,
+  subjectCompanyId: number,
   dealData?: {
     crm_deal_id?: string;
     amount?: number;

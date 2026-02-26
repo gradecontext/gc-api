@@ -10,7 +10,6 @@
  */
 
 import { logger } from "../../utils/logger";
-import { supabaseAdmin } from "../../lib/supabase";
 import { prisma } from "../../db/client";
 import {
   createUser,
@@ -25,10 +24,12 @@ import { CreateUserInput, UpdateUserInput, UserResponse } from "./users.types";
 import {
   findClientById,
   findClientByDomain,
+  updateClientAuditFields,
 } from "../clients/clients.repository";
 import {
   clientCreate,
   extractDomainFromEmail,
+  isPublicEmailDomain,
   formatClientResponse,
 } from "../clients/clients.service";
 import { ClientResponse } from "../clients/clients.types";
@@ -49,11 +50,16 @@ import { ClientResponse } from "../clients/clients.types";
  * The entire client-resolution + user-creation runs inside a Prisma
  * transaction so a failure at any step rolls everything back.
  */
+export interface CreateUserResult {
+  user: UserResponse;
+  created: boolean;
+}
+
 export async function createVerifiedUser(
   supabaseAuthId: string,
-  _supabaseEmail: string | null,
+  supabaseEmail: string | null,
   input: CreateUserInput,
-): Promise<UserResponse> {
+): Promise<CreateUserResult> {
   const clientInput = input.client;
 
   logger.info("Creating verified user", {
@@ -63,26 +69,12 @@ export async function createVerifiedUser(
     email: input.email,
   });
 
-  // Step 1: Verify the Supabase user exists via admin API
-  if (!supabaseAdmin) {
-    throw new Error("Supabase secret key not configured — cannot verify user identity");
-  }
-  const { data: supabaseUser, error: supabaseError } =
-    await supabaseAdmin.auth.admin.getUserById(supabaseAuthId);
-
-  if (supabaseError || !supabaseUser?.user) {
-    logger.warn("Supabase user not found", {
-      supabaseAuthId,
-      error: supabaseError?.message,
-    });
-    throw new Error("Supabase user not found");
-  }
-
-  // Step 2: Verify email consistency — we trust Supabase, not the payload
-  const verifiedEmail = supabaseUser.user.email;
-  if (verifiedEmail && verifiedEmail !== input.email) {
-    logger.warn("Email mismatch between Supabase and input", {
-      supabaseEmail: verifiedEmail,
+  // The session middleware already verified the JWT cryptographically via JWKS,
+  // proving this Supabase user is real. The email claim from the verified JWT
+  // is the trusted source of truth — no admin API call needed.
+  if (supabaseEmail && supabaseEmail !== input.email) {
+    logger.warn("Email mismatch between Supabase JWT and input", {
+      supabaseEmail,
       inputEmail: input.email,
     });
     throw new Error(
@@ -90,9 +82,20 @@ export async function createVerifiedUser(
     );
   }
 
-  const trustedEmail = verifiedEmail ?? input.email;
+  const trustedEmail = supabaseEmail ?? input.email;
 
-  // Step 3–6 run inside a transaction for atomicity
+  // Check if user already exists before starting a transaction.
+  // If so, return the existing profile so the frontend can redirect to login.
+  const existingBySupabase = await findUserBySupabaseId(supabaseAuthId);
+  if (existingBySupabase) {
+    logger.info("User already registered, returning existing profile", {
+      supabaseAuthId,
+      userId: existingBySupabase.id,
+    });
+    return { user: formatUserResponse(existingBySupabase), created: false };
+  }
+
+  // Create user + resolve client atomically
   const { user, client } = await prisma.$transaction(async (tx) => {
     // --- Resolve client ---
     let resolvedClientId: number;
@@ -114,7 +117,13 @@ export async function createVerifiedUser(
     } else {
       // Path B: Find-or-create client by domain derived from Supabase email
       const domain = extractDomainFromEmail(trustedEmail);
-      const existingByDomain = await findClientByDomain(domain, tx);
+      const isPublicDomain = isPublicEmailDomain(domain);
+
+      // Only attempt domain-based matching for corporate email domains;
+      // public providers (gmail, outlook, etc.) are never matched by domain.
+      const existingByDomain = isPublicDomain
+        ? null
+        : await findClientByDomain(domain, tx);
 
       if (existingByDomain) {
         if (!existingByDomain.active) {
@@ -128,7 +137,7 @@ export async function createVerifiedUser(
           clientId: resolvedClientId,
         });
       } else {
-        // Create a brand-new client
+        // Create a brand-new client; omit domain for public email providers
         resolvedClient = await clientCreate(
           {
             client_name: clientInput.client_name!,
@@ -142,25 +151,21 @@ export async function createVerifiedUser(
             client_instagram: clientInput.client_instagram,
             settings: clientInput.settings,
           },
-          domain,
+          isPublicDomain ? undefined : domain,
           tx,
         );
         resolvedClientId = resolvedClient.id;
 
         logger.info("Created new client for user", {
-          domain,
+          domain: isPublicDomain ? "(public domain, not stored)" : domain,
           clientId: resolvedClientId,
           slug: resolvedClient.slug,
         });
       }
     }
 
-    // --- Duplicate checks ---
-    const existingBySupabase = await findUserBySupabaseId(supabaseAuthId, tx);
-    if (existingBySupabase) {
-      throw new Error("User already exists for this Supabase account");
-    }
-
+    // Guard against race condition: another request may have created
+    // the user between our pre-check and this point in the transaction.
     const existingByEmail = await findUserByClientEmail(
       resolvedClientId,
       trustedEmail,
@@ -190,6 +195,17 @@ export async function createVerifiedUser(
 
     const createdUser = await createUser(userData, tx);
 
+    // Set audit fields on newly created clients (added_by = modified_by = this user).
+    // Skip for pre-existing clients that already have an added_by.
+    if (resolvedClient && resolvedClient.added_by === null) {
+      const updatedClient = await updateClientAuditFields(
+        resolvedClientId,
+        createdUser.id,
+        tx,
+      );
+      resolvedClient = formatClientResponse(updatedClient);
+    }
+
     return { user: createdUser, client: resolvedClient };
   });
 
@@ -203,7 +219,7 @@ export async function createVerifiedUser(
   if (client) {
     response.client = client;
   }
-  return response;
+  return { user: response, created: true };
 }
 
 /**

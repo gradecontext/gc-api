@@ -1,7 +1,9 @@
 /**
  * Supabase Session Middleware
  *
- * Verifies Supabase JWT tokens from the Authorization header.
+ * Verifies Supabase JWT tokens from the Authorization header using
+ * local JWKS-based verification (no secret key required).
+ *
  * Used for user-facing endpoints (profile, user creation, etc.)
  *
  * Supports required and optional authentication:
@@ -10,7 +12,7 @@
  */
 
 import { FastifyRequest, FastifyReply } from "fastify";
-import { supabaseAdmin } from "../lib/supabase";
+import { verifySupabaseJwt } from "../lib/jwt";
 import { logger } from "../utils/logger";
 
 export interface SessionRequest extends FastifyRequest {
@@ -53,24 +55,15 @@ export function sessionAuth(isRequired: boolean = true) {
     }
 
     try {
-      if (!supabaseAdmin) {
-        throw new Error("Supabase secret key not configured — cannot verify sessions");
-      }
-      const {
-        data: { user },
-        error,
-      } = await supabaseAdmin.auth.getUser(token);
+      const payload = await verifySupabaseJwt(token);
 
-      if (error || !user) {
+      if (!payload) {
         if (!isRequired) {
           request.supabaseUserId = null;
           request.supabaseUserEmail = null;
           return;
         }
-        logger.warn("Invalid Supabase session", {
-          error: error?.message,
-          ip: request.ip,
-        });
+        logger.warn("Invalid Supabase session", { ip: request.ip });
         reply.code(401).send({
           error: "Unauthorized",
           message: "Invalid or expired session",
@@ -78,12 +71,12 @@ export function sessionAuth(isRequired: boolean = true) {
         return;
       }
 
-      request.supabaseUserId = user.id;
-      request.supabaseUserEmail = user.email ?? null;
+      request.supabaseUserId = payload.sub;
+      request.supabaseUserEmail = payload.email ?? null;
 
       logger.debug("Supabase session verified", {
-        userId: user.id,
-        email: user.email,
+        userId: payload.sub,
+        email: payload.email,
         ip: request.ip,
       });
     } catch (err) {

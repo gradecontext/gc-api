@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+src/generated/
 
 # Environment variables
 .env
@@ -21,6 +22,10 @@ dist/
 logs/
 *.log
 npm-debug.log*
+
+# Cloudflare Workers
+.wrangler/
+.dev.vars
 
 # OS
 .DS_Store

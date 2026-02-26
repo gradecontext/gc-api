@@ -61,6 +61,8 @@ export interface ClientResponse {
   client_linkedin: string | null;
   client_instagram: string | null;
   settings: unknown;
+  added_by: number | null;
+  modified_by: number | null;
   created_at: Date;
   updated_at: Date;
 }

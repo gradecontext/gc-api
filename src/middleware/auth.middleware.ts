@@ -16,7 +16,7 @@ import { FastifyRequest, FastifyReply } from "fastify";
 import { env } from "../config/env";
 import { logger } from "../utils/logger";
 import { prisma } from "../db/client";
-import { supabaseAdmin } from "../lib/supabase";
+import { verifySupabaseJwt } from "../lib/jwt";
 
 export interface AuthenticatedRequest extends FastifyRequest {
   clientId?: number;
@@ -135,38 +135,31 @@ export async function authenticate(
       return;
     }
 
-    // Try Supabase JWT verification (requires secret key)
-    if (!supabaseAdmin) {
-      logger.debug("Supabase secret key not configured, skipping JWT verification");
-    } else {
-      try {
-        const {
-          data: { user },
-          error,
-        } = await supabaseAdmin.auth.getUser(bearerToken);
+    // Try Supabase JWT verification (local JWKS-based, no secret key needed)
+    try {
+      const payload = await verifySupabaseJwt(bearerToken);
 
-        if (!error && user) {
-          request.supabaseUserId = user.id;
-          request.supabaseUserEmail = user.email ?? null;
+      if (payload) {
+        request.supabaseUserId = payload.sub;
+        request.supabaseUserEmail = payload.email ?? null;
 
-          const localUser = await resolveSupabaseUser(user.id);
-          if (localUser) {
-            request.clientId = localUser.clientId;
-            request.userId = localUser.userId;
-          }
-
-          logger.debug("Supabase JWT authenticated", {
-            ip: request.ip,
-            supabaseUserId: user.id,
-            clientId: localUser?.clientId,
-          });
-          return;
+        const localUser = await resolveSupabaseUser(payload.sub);
+        if (localUser) {
+          request.clientId = localUser.clientId;
+          request.userId = localUser.userId;
         }
-      } catch (err) {
-        logger.debug("Supabase JWT verification failed", {
-          error: err instanceof Error ? err.message : String(err),
+
+        logger.debug("Supabase JWT authenticated", {
+          ip: request.ip,
+          supabaseUserId: payload.sub,
+          clientId: localUser?.clientId,
         });
+        return;
       }
+    } catch (err) {
+      logger.debug("Supabase JWT verification failed", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 

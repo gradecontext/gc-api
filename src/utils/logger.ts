@@ -1,9 +1,10 @@
 /**
  * Structured logging utility
- * Outputs JSON-formatted logs for production, human-readable for development
+ *
+ * Reads LOG_LEVEL and NODE_ENV from process.env on each call
+ * (via getters) so it works in Cloudflare Workers where
+ * process.env is populated after module load.
  */
-
-import { env } from '../config/env';
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -14,22 +15,24 @@ interface LogEntry {
   [key: string]: unknown;
 }
 
-class Logger {
-  private logLevel: LogLevel;
+const LEVEL_ORDER: LogLevel[] = ['debug', 'info', 'warn', 'error'];
 
-  constructor() {
-    this.logLevel = env.LOG_LEVEL as LogLevel;
+class Logger {
+  private get logLevel(): LogLevel {
+    const level = process.env.LOG_LEVEL as LogLevel | undefined;
+    return level && LEVEL_ORDER.includes(level) ? level : 'info';
+  }
+
+  private get isProduction(): boolean {
+    return process.env.NODE_ENV === 'production';
   }
 
   private shouldLog(level: LogLevel): boolean {
-    const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
-    return levels.indexOf(level) >= levels.indexOf(this.logLevel);
+    return LEVEL_ORDER.indexOf(level) >= LEVEL_ORDER.indexOf(this.logLevel);
   }
 
   private log(level: LogLevel, message: string, meta?: Record<string, unknown>) {
-    if (!this.shouldLog(level)) {
-      return;
-    }
+    if (!this.shouldLog(level)) return;
 
     const entry: LogEntry = {
       level,
@@ -38,14 +41,14 @@ class Logger {
       ...meta,
     };
 
-    if (env.NODE_ENV === 'production') {
+    if (this.isProduction) {
       console.log(JSON.stringify(entry));
     } else {
       const colorMap = {
-        debug: '\x1b[36m', // Cyan
-        info: '\x1b[32m',  // Green
-        warn: '\x1b[33m',  // Yellow
-        error: '\x1b[31m', // Red
+        debug: '\x1b[36m',
+        info: '\x1b[32m',
+        warn: '\x1b[33m',
+        error: '\x1b[31m',
       };
       const reset = '\x1b[0m';
       console.log(
