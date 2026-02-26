@@ -21,10 +21,15 @@ import { leadsRoutes } from './modules/leads/leads.routes';
 
 /**
  * Create and configure Fastify application instance
+ *
+ * @param options.pluginTimeout - Override Fastify's default 10 s plugin
+ *   timeout. Pass 0 to disable (useful on Cloudflare Workers where cold-start
+ *   latency is unpredictable).
  */
-export async function buildApp() {
+export async function buildApp(options?: { pluginTimeout?: number }) {
   const app = Fastify({
-    logger: false, // We use our custom logger
+    logger: false,
+    pluginTimeout: options?.pluginTimeout ?? 10_000,
     requestIdLogLabel: 'requestId',
     genReqId: () => {
       return randomUUID();

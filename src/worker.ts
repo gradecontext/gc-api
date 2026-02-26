@@ -65,8 +65,16 @@ async function initializeApp(): Promise<void> {
     await pool.end();
   });
 
-  const app = await buildApp();
-  await app.listen({ port: PORT, host: "0.0.0.0" });
+  // Disable pluginTimeout — Workers cold-start latency is unpredictable and
+  // easily exceeds Fastify's default 10 s limit.
+  const app = await buildApp({ pluginTimeout: 0 });
+
+  // Finalize plugins first, then register the server with the Workers
+  // node:http compat layer separately. Using the combined `app.listen()`
+  // can hang on Workers because the underlying `server.listen()` callback
+  // may not fire in the expected tick.
+  await app.ready();
+  app.server.listen(PORT, "0.0.0.0");
 }
 
 export default {
@@ -78,7 +86,10 @@ export default {
     populateProcessEnv(workerEnv);
 
     if (!appReady) {
-      appReady = initializeApp();
+      appReady = initializeApp().catch((err) => {
+        appReady = null; // allow retry on the next request
+        throw err;
+      });
     }
     await appReady;
 
