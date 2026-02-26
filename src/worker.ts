@@ -35,8 +35,23 @@ interface WorkerEnv {
 
 let appReady: Promise<void> | null = null;
 
+const KNOWN_ENV_KEYS = [
+  "DATABASE_URL",
+  "SUPABASE_URL",
+  "SUPABASE_PUBLISHABLE_DEFAULT_KEY",
+  "SUPABASE_SECRET_KEY",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "API_KEY",
+  "NODE_ENV",
+  "LOG_LEVEL",
+  "PORT",
+  "HOST",
+] as const;
+
 function populateProcessEnv(workerEnv: WorkerEnv): void {
-  for (const [key, value] of Object.entries(workerEnv)) {
+  for (const key of KNOWN_ENV_KEYS) {
+    const value = workerEnv[key];
     if (typeof value === "string") {
       process.env[key] = value;
     }
