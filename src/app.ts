@@ -27,6 +27,7 @@ import { leadsRoutes } from './modules/leads/leads.routes';
  *   latency is unpredictable).
  */
 export async function buildApp(options?: { pluginTimeout?: number }) {
+  console.log("[buildApp] creating Fastify instance");
   const app = Fastify({
     logger: false,
     pluginTimeout: options?.pluginTimeout ?? 10_000,
@@ -36,16 +37,15 @@ export async function buildApp(options?: { pluginTimeout?: number }) {
     },
   });
 
-  // Register CORS
+  console.log("[buildApp] registering CORS");
   await app.register(cors, {
-    origin: env.NODE_ENV === 'production' ? false : true, // Allow all in dev, restrict in prod
+    origin: env.NODE_ENV === 'production' ? false : true,
     credentials: true,
   });
+  console.log("[buildApp] CORS done");
 
-  // Global error handler
   app.setErrorHandler(errorHandler);
 
-  // Request logging
   app.addHook('onRequest', async (request) => {
     logger.debug('Incoming request', {
       method: request.method,
@@ -63,7 +63,6 @@ export async function buildApp(options?: { pluginTimeout?: number }) {
     });
   });
 
-  // Health check endpoint
   app.get('/health', async () => {
     return {
       status: 'ok',
@@ -73,11 +72,15 @@ export async function buildApp(options?: { pluginTimeout?: number }) {
     };
   });
 
-  // Register route modules
+  console.log("[buildApp] registering decisionsRoutes");
   await app.register(decisionsRoutes, { prefix: '/api/v1' });
+  console.log("[buildApp] registering usersRoutes");
   await app.register(usersRoutes, { prefix: '/api/v1' });
+  console.log("[buildApp] registering adminsRoutes");
   await app.register(adminsRoutes, { prefix: '/api/v1' });
+  console.log("[buildApp] registering leadsRoutes");
   await app.register(leadsRoutes, { prefix: '/api/v1' });
+  console.log("[buildApp] all routes registered");
 
   logger.info('Application configured', {
     environment: env.NODE_ENV,

@@ -58,15 +58,28 @@ function populateProcessEnv(workerEnv: WorkerEnv): void {
 }
 
 async function initializeApp(): Promise<void> {
+  console.log("[worker] 1/6 creating Pool");
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+  console.log("[worker] 2/6 creating PrismaPg adapter");
   const adapter = new PrismaPg(pool);
-  initPrisma(new PrismaClient({ adapter }), async () => {
+
+  console.log("[worker] 3/6 creating PrismaClient");
+  const client = new PrismaClient({ adapter });
+
+  console.log("[worker] 4/6 injecting prisma");
+  initPrisma(client, async () => {
     await pool.end();
   });
 
+  console.log("[worker] 5/6 calling buildApp");
   const app = await buildApp({ pluginTimeout: 0 });
+
+  console.log("[worker] 6/6 calling app.ready()");
   await app.ready();
+
   fastifyApp = app;
+  console.log("[worker] init complete");
 }
 
 export default {
