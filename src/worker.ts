@@ -1,22 +1,20 @@
 /**
  * Cloudflare Workers Entry Point
  *
- * Bridges incoming fetch events to the Fastify HTTP server using
- * Cloudflare's node:http compatibility layer (requires nodejs_compat
- * flag and compatibility_date >= 2025-08-15).
+ * Routes incoming fetch events through Fastify's inject() API, which
+ * bypasses node:http entirely — no server.listen(), no port binding,
+ * no dependency on Workers' node:http compat layer for the server side.
  *
  * Uses the "worker" Prisma generator (WASM engine, runtime = "cloudflare")
  * so the query engine runs inside the V8 isolate.
  */
 
-import { handleAsNodeRequest } from "cloudflare:node";
 import { PrismaClient } from "./generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { initPrisma } from "./db/client";
 import { buildApp } from "./app";
-
-const PORT = 8080;
+import type { FastifyInstance } from "fastify";
 
 interface WorkerEnv {
   [key: string]: unknown;
@@ -33,6 +31,7 @@ interface WorkerEnv {
   HOST?: string;
 }
 
+let fastifyApp: FastifyInstance | null = null;
 let appReady: Promise<void> | null = null;
 
 const KNOWN_ENV_KEYS = [
@@ -65,16 +64,9 @@ async function initializeApp(): Promise<void> {
     await pool.end();
   });
 
-  // Disable pluginTimeout — Workers cold-start latency is unpredictable and
-  // easily exceeds Fastify's default 10 s limit.
   const app = await buildApp({ pluginTimeout: 0 });
-
-  // Finalize plugins first, then register the server with the Workers
-  // node:http compat layer separately. Using the combined `app.listen()`
-  // can hang on Workers because the underlying `server.listen()` callback
-  // may not fire in the expected tick.
   await app.ready();
-  app.server.listen(PORT, "0.0.0.0");
+  fastifyApp = app;
 }
 
 export default {
@@ -87,12 +79,49 @@ export default {
 
     if (!appReady) {
       appReady = initializeApp().catch((err) => {
-        appReady = null; // allow retry on the next request
+        appReady = null;
         throw err;
       });
     }
     await appReady;
 
-    return handleAsNodeRequest(PORT, request);
+    const url = new URL(request.url);
+
+    const headers: Record<string, string> = {};
+    request.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+
+    const hasBody = request.method !== "GET" && request.method !== "HEAD";
+    const payload = hasBody ? Buffer.from(await request.arrayBuffer()) : undefined;
+
+    const res = await fastifyApp!.inject({
+      method: request.method as
+        | "GET"
+        | "POST"
+        | "PUT"
+        | "PATCH"
+        | "DELETE"
+        | "HEAD"
+        | "OPTIONS",
+      url: url.pathname + url.search,
+      headers,
+      payload,
+    });
+
+    const responseHeaders = new Headers();
+    for (const [key, value] of Object.entries(res.headers)) {
+      if (value === undefined) continue;
+      if (Array.isArray(value)) {
+        for (const v of value) responseHeaders.append(key, String(v));
+      } else {
+        responseHeaders.set(key, String(value));
+      }
+    }
+
+    return new Response(res.rawPayload, {
+      status: res.statusCode,
+      headers: responseHeaders,
+    });
   },
 };
