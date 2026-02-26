@@ -9,7 +9,7 @@
  * entry point (server.ts) for local development.
  */
 
-import { PrismaClient } from "./generated/prisma/client";
+import { PrismaClient } from "@prisma/client/edge";
 import { withAccelerate } from "@prisma/extension-accelerate";
 import { initPrisma } from "./db/client";
 import { buildApp } from "./app";
