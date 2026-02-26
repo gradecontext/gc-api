@@ -1,17 +1,16 @@
 /**
  * Cloudflare Workers Entry Point
  *
- * Routes incoming fetch events through Fastify's inject() API, which
- * bypasses node:http entirely — no server.listen(), no port binding,
- * no dependency on Workers' node:http compat layer for the server side.
+ * Routes fetch events through Fastify's inject() API (no node:http needed).
  *
- * Uses the "worker" Prisma generator (WASM engine, runtime = "cloudflare")
- * so the query engine runs inside the V8 isolate.
+ * Database access uses Prisma Accelerate — an HTTP-based proxy — because
+ * Workers cannot open raw TCP sockets to Postgres on port 5432/6543.
+ * The pg Pool / @prisma/adapter-pg path is only used in the Node.js
+ * entry point (server.ts) for local development.
  */
 
 import { PrismaClient } from "./generated/prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { Pool } from "pg";
+import { withAccelerate } from "@prisma/extension-accelerate";
 import { initPrisma } from "./db/client";
 import { buildApp } from "./app";
 import type { FastifyInstance } from "fastify";
@@ -57,29 +56,33 @@ function populateProcessEnv(workerEnv: WorkerEnv): void {
   }
 }
 
-async function initializeApp(): Promise<void> {
-  console.log("[worker] 1/6 creating Pool");
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+): Promise<T> {
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error(`Timeout: ${label} took longer than ${ms}ms`)),
+      ms,
+    ),
+  );
+  return Promise.race([promise, timeout]);
+}
 
-  console.log("[worker] 2/6 creating PrismaPg adapter");
-  const adapter = new PrismaPg(pool);
+async function initializeApp(workerEnv: WorkerEnv): Promise<void> {
+  // Prisma Accelerate — queries go over HTTPS, no TCP socket needed.
+  // DATABASE_URL must be the Accelerate connection string:
+  //   prisma://accelerate.prisma-data.net/?api_key=...
+  const client = new PrismaClient({
+    datasourceUrl: workerEnv.DATABASE_URL,
+  }).$extends(withAccelerate());
 
-  console.log("[worker] 3/6 creating PrismaClient");
-  const client = new PrismaClient({ adapter });
+  initPrisma(client as any);
 
-  console.log("[worker] 4/6 injecting prisma");
-  initPrisma(client, async () => {
-    await pool.end();
-  });
-
-  console.log("[worker] 5/6 calling buildApp");
   const app = await buildApp({ pluginTimeout: 0 });
-
-  console.log("[worker] 6/6 calling app.ready()");
   await app.ready();
-
   fastifyApp = app;
-  console.log("[worker] init complete");
 }
 
 export default {
@@ -91,7 +94,11 @@ export default {
     populateProcessEnv(workerEnv);
 
     if (!appReady) {
-      appReady = initializeApp().catch((err) => {
+      appReady = withTimeout(
+        initializeApp(workerEnv),
+        10_000,
+        "initializeApp",
+      ).catch((err) => {
         appReady = null;
         throw err;
       });
@@ -106,7 +113,9 @@ export default {
     });
 
     const hasBody = request.method !== "GET" && request.method !== "HEAD";
-    const payload = hasBody ? Buffer.from(await request.arrayBuffer()) : undefined;
+    const payload = hasBody
+      ? Buffer.from(await request.arrayBuffer())
+      : undefined;
 
     const res = await fastifyApp!.inject({
       method: request.method as
