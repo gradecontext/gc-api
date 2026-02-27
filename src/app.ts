@@ -37,9 +37,35 @@ export async function buildApp(options?: { pluginTimeout?: number }) {
   });
   console.log("[build] app created");
 
-  await app.register(cors, {
-    origin: env.NODE_ENV === "production" ? false : true,
-    credentials: true,
+  const ALLOWED_ORIGINS = new Set([
+    "https://app.contextgrade.com",
+    "https://admin.contextgrade.com",
+    "https://contextgrade.com",
+  ]);
+
+  app.addHook("onRequest", async (request, reply) => {
+    const origin = request.headers.origin;
+
+    if (
+      origin &&
+      (env.NODE_ENV !== "production" || ALLOWED_ORIGINS.has(origin))
+    ) {
+      reply.header("Access-Control-Allow-Origin", origin);
+      reply.header("Access-Control-Allow-Credentials", "true");
+      reply.header(
+        "Access-Control-Allow-Methods",
+        "GET,POST,PUT,PATCH,DELETE,OPTIONS,HEAD",
+      );
+      reply.header(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization, X-Requested-With",
+      );
+    }
+
+    if (request.method === "OPTIONS") {
+      reply.header("Access-Control-Max-Age", "86400");
+      reply.status(204).send();
+    }
   });
   console.log("[build] cors done");
 
