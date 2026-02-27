@@ -75,15 +75,27 @@ function withTimeout<T>(
 }
 
 async function initializeApp(workerEnv: WorkerEnv): Promise<void> {
+  console.log("[init] 1 - starting");
+
   const adapter = new PrismaPg({
-    connectionString: workerEnv.HYPERDRIVE.connectionString, // <-- use this
+    connectionString: workerEnv.HYPERDRIVE.connectionString,
   });
+  console.log("[init] 2 - adapter created");
+
   const client = new PrismaClient({ adapter });
+  console.log("[init] 3 - prisma client created");
+
   initPrisma(client);
+  console.log("[init] 4 - prisma injected");
 
   const app = await buildApp({ pluginTimeout: 0 });
+  console.log("[init] 5 - buildApp done");
+
   await app.ready();
+  console.log("[init] 6 - app.ready() done");
+
   fastifyApp = app;
+  console.log("[init] 7 - complete");
 }
 
 export default {
