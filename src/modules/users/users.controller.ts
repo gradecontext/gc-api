@@ -1,49 +1,41 @@
 /**
  * Users Controller
  * Request/response handling for user endpoints
- *
- * Handles validation, authentication extraction, and response formatting
  */
 
-import { FastifyReply, FastifyRequest } from 'fastify';
-import { z } from 'zod';
-import { logger } from '../../utils/logger';
-import { SessionRequest } from '../../middleware/session.middleware';
+import { Context } from "hono";
+import { z } from "zod";
+import { logger } from "../../utils/logger";
 import {
   createVerifiedUser,
   getUserBySupabaseId,
   getUserById,
   updateUserProfile,
   type CreateUserResult,
-} from './users.service';
+} from "./users.service";
 
-// Validation schemas
 const genderValues = [
-  'MALE',
-  'FEMALE',
-  'NON_BINARY',
-  'GENDERQUEER',
-  'GENDERFLUID',
-  'AGENDER',
-  'BIGENDER',
-  'TWO_SPIRIT',
-  'TRANSGENDER_MALE',
-  'TRANSGENDER_FEMALE',
-  'INTERSEX',
-  'PREFER_NOT_TO_SAY',
-  'OTHER',
+  "MALE",
+  "FEMALE",
+  "NON_BINARY",
+  "GENDERQUEER",
+  "GENDERFLUID",
+  "AGENDER",
+  "BIGENDER",
+  "TWO_SPIRIT",
+  "TRANSGENDER_MALE",
+  "TRANSGENDER_FEMALE",
+  "INTERSEX",
+  "PREFER_NOT_TO_SAY",
+  "OTHER",
 ] as const;
 
-/**
- * Client sub-schema for user creation.
- * Either `client_id` (existing client) or `client_name` (find-or-create) is required.
- */
 const clientInputSchema = z
   .object({
     client_id: z.number().int().positive().optional(),
     client_name: z.string().min(1).optional(),
     plan: z
-      .enum(['FREE', 'STARTER', 'PROFESSIONAL', 'ENTERPRISE'])
+      .enum(["FREE", "STARTER", "PROFESSIONAL", "ENTERPRISE"])
       .optional(),
     details: z.string().optional(),
     logo: z.string().optional(),
@@ -60,8 +52,8 @@ const clientInputSchema = z
       (data.client_name !== undefined && data.client_name.trim().length > 0),
     {
       message:
-        'Company data missing. Either client_id or client_name is required.',
-    }
+        "Company data missing. Either client_id or client_name is required.",
+    },
   );
 
 const createUserSchema = z.object({
@@ -70,9 +62,9 @@ const createUserSchema = z.object({
   name: z.string().min(1).optional(),
   title: z.string().optional(),
   role: z
-    .enum(['OWNER', 'ADMIN', 'APPROVER', 'VIEWER'])
+    .enum(["OWNER", "ADMIN", "APPROVER", "VIEWER"])
     .optional()
-    .default('VIEWER'),
+    .default("VIEWER"),
   display_name: z.string().max(150).optional(),
   user_name: z.string().max(100).optional(),
   image_url: z.string().url().optional(),
@@ -98,32 +90,22 @@ const updateUserSchema = z.object({
 
 /**
  * POST /users
- * Create a new user (requires valid Supabase session)
- *
- * The user must be authenticated via Supabase JWT.
- * The endpoint verifies the Supabase user exists before creating
- * the local user record and resolving/creating the associated client.
  */
-export async function createUserHandler(
-  request: FastifyRequest<{ Body: unknown }>,
-  reply: FastifyReply
-) {
+export async function createUserHandler(c: Context) {
   try {
-    const sessionReq = request as SessionRequest;
-    const supabaseUserId = sessionReq.supabaseUserId;
-    const supabaseUserEmail = sessionReq.supabaseUserEmail;
+    const supabaseUserId = c.get("supabaseUserId") as string | null;
+    const supabaseUserEmail = c.get("supabaseUserEmail") as string | null;
 
     if (!supabaseUserId) {
-      reply.code(401).send({
-        error: 'Unauthorized',
-        message: 'Valid Supabase session is required to create a user',
-      });
-      return;
+      return c.json(
+        { error: "Unauthorized", message: "Valid Supabase session is required to create a user" },
+        401,
+      );
     }
 
-    const body = createUserSchema.parse(request.body);
+    const body = createUserSchema.parse(await c.req.json());
 
-    logger.info('User creation request received', {
+    logger.info("User creation request received", {
       supabaseUserId,
       hasClientId: !!body.client.client_id,
       hasClientName: !!body.client.client_name,
@@ -133,64 +115,55 @@ export async function createUserHandler(
     const result: CreateUserResult = await createVerifiedUser(
       supabaseUserId,
       supabaseUserEmail ?? null,
-      body
+      body,
     );
 
     if (result.created) {
-      reply.code(201).send({
-        success: true,
-        message: 'User created successfully',
-        data: result.user,
-      });
+      return c.json(
+        { success: true, message: "User created successfully", data: result.user },
+        201,
+      );
     } else {
-      reply.code(200).send({
-        success: true,
-        message: 'User already registered',
-        existing: true,
-        data: result.user,
-      });
+      return c.json(
+        { success: true, message: "User already registered", existing: true, data: result.user },
+        200,
+      );
     }
   } catch (error) {
     if (error instanceof z.ZodError) {
-      reply.code(400).send({
-        error: 'Validation Error',
-        message: 'Invalid request body',
-        details: error.errors,
-      });
-      return;
+      return c.json(
+        { error: "Validation Error", message: "Invalid request body", details: error.errors },
+        400,
+      );
     }
 
     if (error instanceof Error) {
       const errorMap: Record<string, number> = {
-        'Client not found': 404,
-        'Client account is inactive': 403,
-        'A user with this email already exists for this client': 409,
-        'Email does not match Supabase account. Use the email associated with your authentication.': 400,
-        'Company data missing. Either client_id or client_name is required.': 400,
+        "Client not found": 404,
+        "Client account is inactive": 403,
+        "A user with this email already exists for this client": 409,
+        "Email does not match Supabase account. Use the email associated with your authentication.": 400,
+        "Company data missing. Either client_id or client_name is required.": 400,
       };
 
       const statusCode = errorMap[error.message];
       if (statusCode) {
         const errorLabel =
           statusCode === 409
-            ? 'Conflict'
+            ? "Conflict"
             : statusCode === 403
-              ? 'Forbidden'
+              ? "Forbidden"
               : statusCode === 404
-                ? 'Not Found'
-                : 'Bad Request';
+                ? "Not Found"
+                : "Bad Request";
 
-        reply.code(statusCode).send({
-          error: errorLabel,
-          message: error.message,
-        });
-        return;
+        return c.json({ error: errorLabel, message: error.message }, statusCode as any);
       }
     }
 
     logger.error(
-      'Error creating user',
-      error instanceof Error ? error : new Error(String(error))
+      "Error creating user",
+      error instanceof Error ? error : new Error(String(error)),
     );
     throw error;
   }
@@ -198,42 +171,29 @@ export async function createUserHandler(
 
 /**
  * GET /users/me
- * Get the current authenticated user's profile
  */
-export async function getMeHandler(
-  request: FastifyRequest,
-  reply: FastifyReply
-) {
+export async function getMeHandler(c: Context) {
   try {
-    const sessionReq = request as SessionRequest;
-    const supabaseUserId = sessionReq.supabaseUserId;
+    const supabaseUserId = c.get("supabaseUserId") as string | null;
 
     if (!supabaseUserId) {
-      reply.code(401).send({
-        error: 'Unauthorized',
-        message: 'Valid session is required',
-      });
-      return;
+      return c.json({ error: "Unauthorized", message: "Valid session is required" }, 401);
     }
 
     const user = await getUserBySupabaseId(supabaseUserId);
 
     if (!user) {
-      reply.code(404).send({
-        error: 'Not Found',
-        message: 'User profile not found. Please create your profile first.',
-      });
-      return;
+      return c.json(
+        { error: "Not Found", message: "User profile not found. Please create your profile first." },
+        404,
+      );
     }
 
-    reply.code(200).send({
-      success: true,
-      data: user,
-    });
+    return c.json({ success: true, data: user }, 200);
   } catch (error) {
     logger.error(
-      'Error fetching user profile',
-      error instanceof Error ? error : new Error(String(error))
+      "Error fetching user profile",
+      error instanceof Error ? error : new Error(String(error)),
     );
     throw error;
   }
@@ -241,41 +201,26 @@ export async function getMeHandler(
 
 /**
  * GET /users/:id
- * Get a user by internal ID
  */
-export async function getUserHandler(
-  request: FastifyRequest<{ Params: { id: string } }>,
-  reply: FastifyReply
-) {
+export async function getUserHandler(c: Context) {
   try {
-    const userId = parseInt(request.params.id, 10);
+    const userId = parseInt(c.req.param("id"), 10);
 
     if (isNaN(userId)) {
-      reply.code(400).send({
-        error: 'Bad Request',
-        message: 'Invalid user ID',
-      });
-      return;
+      return c.json({ error: "Bad Request", message: "Invalid user ID" }, 400);
     }
 
     const user = await getUserById(userId);
 
     if (!user) {
-      reply.code(404).send({
-        error: 'Not Found',
-        message: 'User not found',
-      });
-      return;
+      return c.json({ error: "Not Found", message: "User not found" }, 404);
     }
 
-    reply.code(200).send({
-      success: true,
-      data: user,
-    });
+    return c.json({ success: true, data: user }, 200);
   } catch (error) {
     logger.error(
-      'Error fetching user',
-      error instanceof Error ? error : new Error(String(error))
+      "Error fetching user",
+      error instanceof Error ? error : new Error(String(error)),
     );
     throw error;
   }
@@ -283,65 +228,44 @@ export async function getUserHandler(
 
 /**
  * PATCH /users/:id
- * Update a user's profile (only the user themselves can update)
  */
-export async function updateUserHandler(
-  request: FastifyRequest<{ Params: { id: string }; Body: unknown }>,
-  reply: FastifyReply
-) {
+export async function updateUserHandler(c: Context) {
   try {
-    const sessionReq = request as SessionRequest;
-    const supabaseUserId = sessionReq.supabaseUserId;
+    const supabaseUserId = c.get("supabaseUserId") as string | null;
 
     if (!supabaseUserId) {
-      reply.code(401).send({
-        error: 'Unauthorized',
-        message: 'Valid session is required',
-      });
-      return;
+      return c.json({ error: "Unauthorized", message: "Valid session is required" }, 401);
     }
 
-    const userId = parseInt(request.params.id, 10);
+    const userId = parseInt(c.req.param("id"), 10);
     if (isNaN(userId)) {
-      reply.code(400).send({
-        error: 'Bad Request',
-        message: 'Invalid user ID',
-      });
-      return;
+      return c.json({ error: "Bad Request", message: "Invalid user ID" }, 400);
     }
 
-    const body = updateUserSchema.parse(request.body);
-
+    const body = updateUserSchema.parse(await c.req.json());
     const user = await updateUserProfile(userId, supabaseUserId, body);
 
-    reply.code(200).send({
-      success: true,
-      data: user,
-    });
+    return c.json({ success: true, data: user }, 200);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      reply.code(400).send({
-        error: 'Validation Error',
-        message: 'Invalid request body',
-        details: error.errors,
-      });
-      return;
+      return c.json(
+        { error: "Validation Error", message: "Invalid request body", details: error.errors },
+        400,
+      );
     }
 
     if (error instanceof Error) {
-      if (error.message === 'User not found') {
-        reply.code(404).send({ error: 'Not Found', message: error.message });
-        return;
+      if (error.message === "User not found") {
+        return c.json({ error: "Not Found", message: error.message }, 404);
       }
-      if (error.message === 'Not authorized to update this user') {
-        reply.code(403).send({ error: 'Forbidden', message: error.message });
-        return;
+      if (error.message === "Not authorized to update this user") {
+        return c.json({ error: "Forbidden", message: error.message }, 403);
       }
     }
 
     logger.error(
-      'Error updating user',
-      error instanceof Error ? error : new Error(String(error))
+      "Error updating user",
+      error instanceof Error ? error : new Error(String(error)),
     );
     throw error;
   }

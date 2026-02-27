@@ -6,69 +6,40 @@
  * 2. Supabase JWT — for user-facing endpoints (Bearer token verified via Supabase)
  *
  * The middleware tries API key first, then falls back to Supabase JWT.
- *
- * Environment isolation (sandbox vs production) is handled at the
- * infrastructure level — separate DB instances and endpoints
- * (e.g. sandbox.contextgrade.com vs api.contextgrade.com).
  */
 
-import { FastifyRequest, FastifyReply } from "fastify";
+import { Context, MiddlewareHandler } from "hono";
 import { env } from "../config/env";
 import { logger } from "../utils/logger";
 import { prisma } from "../db/client";
 import { verifySupabaseJwt } from "../lib/jwt";
 
-export interface AuthenticatedRequest extends FastifyRequest {
-  clientId?: number;
-  userId?: number;
-  supabaseUserId?: string | null;
-  supabaseUserEmail?: string | null;
-}
+function extractApiKey(c: Context): string | null {
+  const apiKeyHeader = c.req.header("x-api-key");
+  if (apiKeyHeader) return apiKeyHeader;
 
-/**
- * Extract API key from X-API-Key header or query param.
- * Does NOT extract from Authorization header (reserved for Bearer tokens).
- */
-function extractApiKey(request: FastifyRequest): string | null {
-  const apiKeyHeader = request.headers["x-api-key"];
-  if (apiKeyHeader && typeof apiKeyHeader === "string") {
-    return apiKeyHeader;
-  }
-
-  const queryKey = (request.query as { apiKey?: string })?.apiKey;
-  if (queryKey) {
-    return queryKey;
-  }
+  const queryKey = c.req.query("apiKey");
+  if (queryKey) return queryKey;
 
   return null;
 }
 
-/**
- * Extract Bearer token from Authorization header
- */
-function extractBearerToken(request: FastifyRequest): string | null {
-  const authHeader = request.headers.authorization;
+function extractBearerToken(c: Context): string | null {
+  const authHeader = c.req.header("authorization");
   if (authHeader?.startsWith("Bearer ")) {
     return authHeader.substring(7);
   }
   return null;
 }
 
-/**
- * Resolve API key to a client.
- */
 async function resolveClientApiKey(apiKey: string): Promise<number | null> {
   const client = await prisma.client.findUnique({
     where: { apiKey },
     select: { id: true },
   });
-
   return client?.id ?? null;
 }
 
-/**
- * Resolve Supabase user to a local user + client.
- */
 async function resolveSupabaseUser(
   supabaseAuthId: string,
 ): Promise<{ clientId: number; userId: number } | null> {
@@ -76,85 +47,67 @@ async function resolveSupabaseUser(
     where: { supabaseAuthId },
     select: { id: true, clientId: true },
   });
-
   if (!user) return null;
-
   return { clientId: user.clientId, userId: user.id };
 }
 
 /**
  * Unified authentication middleware.
  *
- * Authentication flow:
- * 1. Check X-API-Key header → resolve client from API key
- * 2. Check master API key (Bearer or X-API-Key)
- * 3. Check Bearer token → verify with Supabase → resolve user + client
- * 4. If nothing works → 401
+ * Sets context variables: clientId, userId, supabaseUserId, supabaseUserEmail
  */
-export async function authenticate(
-  request: AuthenticatedRequest,
-  reply: FastifyReply,
-): Promise<void> {
+export const authenticate: MiddlewareHandler = async (c, next) => {
   // Strategy 1: X-API-Key header or query param
-  const apiKey = extractApiKey(request);
+  const apiKey = extractApiKey(c);
 
   if (apiKey) {
-    // Check master API key
     if (env.API_KEY && apiKey === env.API_KEY) {
-      logger.debug("Master API key authenticated", { ip: request.ip });
-      return;
+      logger.debug("Master API key authenticated", { ip: c.req.header("cf-connecting-ip") });
+      return next();
     }
 
-    // Resolve per-client API key
     const clientId = await resolveClientApiKey(apiKey);
     if (clientId) {
-      request.clientId = clientId;
-      logger.debug("API key authenticated", { ip: request.ip, clientId });
-      return;
+      c.set("clientId", clientId);
+      logger.debug("API key authenticated", { clientId });
+      return next();
     }
   }
 
-  // Strategy 2: Bearer token (master key or Supabase JWT)
-  const bearerToken = extractBearerToken(request);
+  // Strategy 2: Bearer token (master key, client key, or Supabase JWT)
+  const bearerToken = extractBearerToken(c);
 
   if (bearerToken) {
-    // Check if Bearer token is the master API key
     if (env.API_KEY && bearerToken === env.API_KEY) {
-      logger.debug("Master API key (Bearer) authenticated", { ip: request.ip });
-      return;
+      logger.debug("Master API key (Bearer) authenticated");
+      return next();
     }
 
-    // Check if Bearer token is a client API key
     const clientId = await resolveClientApiKey(bearerToken);
     if (clientId) {
-      request.clientId = clientId;
-      logger.debug("Client API key (Bearer) authenticated", {
-        ip: request.ip,
-        clientId,
-      });
-      return;
+      c.set("clientId", clientId);
+      logger.debug("Client API key (Bearer) authenticated", { clientId });
+      return next();
     }
 
-    // Try Supabase JWT verification (local JWKS-based, no secret key needed)
     try {
       const payload = await verifySupabaseJwt(bearerToken);
 
       if (payload) {
-        request.supabaseUserId = payload.sub;
-        request.supabaseUserEmail = payload.email ?? null;
+        c.set("supabaseUserId", payload.sub);
+        c.set("supabaseUserEmail", payload.email ?? null);
 
         const localUser = await resolveSupabaseUser(payload.sub);
         if (localUser) {
-          request.clientId = localUser.clientId;
-          request.userId = localUser.userId;
+          c.set("clientId", localUser.clientId);
+          c.set("userId", localUser.userId);
         }
 
         logger.debug("Supabase JWT authenticated", {
-          ip: request.ip,
           supabaseUserId: payload.sub,
           clientId: localUser?.clientId,
         });
-        return;
+        return next();
       }
     } catch (err) {
       logger.debug("Supabase JWT verification failed", {
@@ -163,16 +116,14 @@ export async function authenticate(
     }
   }
 
-  // Skip auth if API_KEY is not configured (development mode)
   if (!env.API_KEY) {
     logger.warn("API_KEY not configured, skipping authentication");
-    return;
+    return next();
   }
 
-  // No valid authentication found
-  logger.warn("Authentication failed", { ip: request.ip });
-  reply.code(401).send({
-    error: "Unauthorized",
-    message: "Valid API key or session token is required",
-  });
-}
+  logger.warn("Authentication failed");
+  return c.json(
+    { error: "Unauthorized", message: "Valid API key or session token is required" },
+    401,
+  );
+};

@@ -3,10 +3,10 @@
  * Catches all errors and formats consistent error responses
  */
 
-import { FastifyError, FastifyRequest, FastifyReply } from 'fastify';
-import { ZodError } from 'zod';
-import { logger } from '../utils/logger';
-import { env } from '../config/env';
+import { Context } from "hono";
+import { ZodError } from "zod";
+import { logger } from "../utils/logger";
+import { env } from "../config/env";
 
 interface ErrorResponse {
   error: string;
@@ -21,100 +21,79 @@ interface PrismaKnownError {
   clientVersion: string;
 }
 
-/**
- * Detect Prisma errors via duck typing instead of instanceof.
- * Works across both the Node.js and Workers Prisma generators.
- */
 function isPrismaKnownError(error: unknown): error is PrismaKnownError {
   return (
     error instanceof Error &&
-    'code' in error &&
-    'clientVersion' in error &&
-    typeof (error as any).code === 'string'
+    "code" in error &&
+    "clientVersion" in error &&
+    typeof (error as any).code === "string"
   );
 }
 
 function formatPrismaError(error: PrismaKnownError): ErrorResponse {
   switch (error.code) {
-    case 'P2002':
+    case "P2002":
       return {
-        error: 'Conflict',
-        message: 'A record with this unique constraint already exists',
+        error: "Conflict",
+        message: "A record with this unique constraint already exists",
         details: error.meta,
       };
-    case 'P2025':
+    case "P2025":
       return {
-        error: 'Not Found',
-        message: 'The requested record was not found',
+        error: "Not Found",
+        message: "The requested record was not found",
       };
     default:
       return {
-        error: 'Database Error',
-        message: 'A database operation failed',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+        error: "Database Error",
+        message: "A database operation failed",
+        details:
+          process.env.NODE_ENV === "development" ? error.message : undefined,
       };
   }
 }
 
-/**
- * Format Zod validation errors
- */
 function formatZodError(error: ZodError): ErrorResponse {
   return {
-    error: 'Validation Error',
-    message: 'Request validation failed',
+    error: "Validation Error",
+    message: "Request validation failed",
     details: error.errors.map((e) => ({
-      path: e.path.join('.'),
+      path: e.path.join("."),
       message: e.message,
     })),
   };
 }
 
 /**
- * Global error handler
- * Catches all unhandled errors and formats responses
+ * Hono global error handler — registered via app.onError()
  */
-export async function errorHandler(
-  error: FastifyError | Error,
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> {
-  const errorObj = error instanceof Error ? error : new Error(String(error));
-  logger.error('Request error', {
-    message: errorObj.message,
-    stack: errorObj.stack,
-    method: request.method,
-    url: request.url,
-    statusCode: 'statusCode' in error ? error.statusCode : 500,
+export function errorHandler(error: Error, c: Context) {
+  logger.error("Request error", {
+    message: error.message,
+    stack: error.stack,
+    method: c.req.method,
+    url: c.req.url,
   });
 
   let response: ErrorResponse;
-  let statusCode = 500;
+  let statusCode: 400 | 404 | 409 | 500 = 500;
 
-  // Handle known error types
   if (error instanceof ZodError) {
     response = formatZodError(error);
     statusCode = 400;
   } else if (isPrismaKnownError(error)) {
     response = formatPrismaError(error);
-    statusCode = error.code === 'P2025' ? 404 : 409;
-  } else if ('statusCode' in error && typeof error.statusCode === 'number') {
-    // Fastify error with status code
-    statusCode = error.statusCode;
-    response = {
-      error: error.name || 'Error',
-      message: error.message || 'An error occurred',
-    };
+    statusCode = error.code === "P2025" ? 404 : 409;
   } else {
-    // Unknown error - never expose internal details in production
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : undefined;
     response = {
-      error: 'Internal Server Error',
-      message: env.NODE_ENV === 'development' ? errorMessage : 'An unexpected error occurred',
-      details: env.NODE_ENV === 'development' ? errorStack : undefined,
+      error: "Internal Server Error",
+      message:
+        env.NODE_ENV === "development"
+          ? error.message
+          : "An unexpected error occurred",
+      details: env.NODE_ENV === "development" ? error.stack : undefined,
     };
   }
 
-  reply.code(statusCode).send(response);
+  return c.json(response, statusCode);
 }

@@ -3,18 +3,18 @@
  * Request/response handling for lead endpoints
  */
 
-import { FastifyReply, FastifyRequest } from 'fastify';
-import { z } from 'zod';
-import { logger } from '../../utils/logger';
+import { Context } from "hono";
+import { z } from "zod";
+import { logger } from "../../utils/logger";
 import {
   createNewLead,
   getLeadById,
   listLeads,
   updateLeadDetails,
-} from './leads.service';
+} from "./leads.service";
 
-const clientPlanValues = ['FREE', 'STARTER', 'PROFESSIONAL', 'ENTERPRISE'] as const;
-const leadStatusValues = ['NEW', 'CONTACTED', 'PENDING', 'APPROVED', 'REJECTED', 'CONVERTED'] as const;
+const clientPlanValues = ["FREE", "STARTER", "PROFESSIONAL", "ENTERPRISE"] as const;
+const leadStatusValues = ["NEW", "CONTACTED", "PENDING", "APPROVED", "REJECTED", "CONVERTED"] as const;
 
 const createLeadSchema = z.object({
   email: z.string().email(),
@@ -40,140 +40,106 @@ const updateLeadSchema = z.object({
   converted_to_client_id: z.number().int().positive().nullable().optional(),
 });
 
-/**
- * POST /leads
- */
-export async function createLeadHandler(
-  request: FastifyRequest<{ Body: unknown }>,
-  reply: FastifyReply
-) {
+export async function createLeadHandler(c: Context) {
   try {
-    const body = createLeadSchema.parse(request.body);
+    const body = createLeadSchema.parse(await c.req.json());
     const lead = await createNewLead(body);
-    reply.code(201).send({ success: true, data: lead });
+    return c.json({ success: true, data: lead }, 201);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      reply.code(400).send({
-        error: 'Validation Error',
-        message: 'Invalid request body',
-        details: error.errors,
-      });
-      return;
+      return c.json(
+        { error: "Validation Error", message: "Invalid request body", details: error.errors },
+        400,
+      );
     }
-    logger.error('Error creating lead', error instanceof Error ? error : new Error(String(error)));
+    logger.error("Error creating lead", error instanceof Error ? error : new Error(String(error)));
     throw error;
   }
 }
 
-/**
- * GET /leads
- */
-export async function listLeadsHandler(
-  request: FastifyRequest<{
-    Querystring: {
-      status?: string;
-      contacted?: string;
-      represented_by?: string;
-      page?: string;
-      limit?: string;
-    };
-  }>,
-  reply: FastifyReply
-) {
+export async function listLeadsHandler(c: Context) {
   try {
-    const query = request.query;
+    const status = c.req.query("status");
+    const contacted = c.req.query("contacted");
+    const representedBy = c.req.query("represented_by");
+    const page = c.req.query("page");
+    const limit = c.req.query("limit");
 
     const result = await listLeads({
-      status: query.status as typeof leadStatusValues[number] | undefined,
-      contacted: query.contacted !== undefined ? query.contacted === 'true' : undefined,
-      represented_by: query.represented_by ? parseInt(query.represented_by, 10) : undefined,
-      page: query.page ? parseInt(query.page, 10) : undefined,
-      limit: query.limit ? parseInt(query.limit, 10) : undefined,
+      status: status as typeof leadStatusValues[number] | undefined,
+      contacted: contacted !== undefined ? contacted === "true" : undefined,
+      represented_by: representedBy ? parseInt(representedBy, 10) : undefined,
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
     });
 
-    reply.code(200).send({
-      success: true,
-      data: result.leads,
-      pagination: {
-        total: result.total,
-        page: result.page,
-        limit: result.limit,
-        pages: Math.ceil(result.total / result.limit),
+    return c.json(
+      {
+        success: true,
+        data: result.leads,
+        pagination: {
+          total: result.total,
+          page: result.page,
+          limit: result.limit,
+          pages: Math.ceil(result.total / result.limit),
+        },
       },
-    });
+      200,
+    );
   } catch (error) {
-    logger.error('Error listing leads', error instanceof Error ? error : new Error(String(error)));
+    logger.error("Error listing leads", error instanceof Error ? error : new Error(String(error)));
     throw error;
   }
 }
 
-/**
- * GET /leads/:id
- */
-export async function getLeadHandler(
-  request: FastifyRequest<{ Params: { id: string } }>,
-  reply: FastifyReply
-) {
+export async function getLeadHandler(c: Context) {
   try {
-    const id = parseInt(request.params.id, 10);
+    const id = parseInt(c.req.param("id"), 10);
     if (isNaN(id)) {
-      reply.code(400).send({ error: 'Bad Request', message: 'Invalid lead ID' });
-      return;
+      return c.json({ error: "Bad Request", message: "Invalid lead ID" }, 400);
     }
 
     const lead = await getLeadById(id);
     if (!lead) {
-      reply.code(404).send({ error: 'Not Found', message: 'Lead not found' });
-      return;
+      return c.json({ error: "Not Found", message: "Lead not found" }, 404);
     }
 
-    reply.code(200).send({ success: true, data: lead });
+    return c.json({ success: true, data: lead }, 200);
   } catch (error) {
-    logger.error('Error fetching lead', error instanceof Error ? error : new Error(String(error)));
+    logger.error("Error fetching lead", error instanceof Error ? error : new Error(String(error)));
     throw error;
   }
 }
 
-/**
- * PATCH /leads/:id
- */
-export async function updateLeadHandler(
-  request: FastifyRequest<{ Params: { id: string }; Body: unknown }>,
-  reply: FastifyReply
-) {
+export async function updateLeadHandler(c: Context) {
   try {
-    const id = parseInt(request.params.id, 10);
+    const id = parseInt(c.req.param("id"), 10);
     if (isNaN(id)) {
-      reply.code(400).send({ error: 'Bad Request', message: 'Invalid lead ID' });
-      return;
+      return c.json({ error: "Bad Request", message: "Invalid lead ID" }, 400);
     }
 
-    const body = updateLeadSchema.parse(request.body);
+    const body = updateLeadSchema.parse(await c.req.json());
     const lead = await updateLeadDetails(id, body);
-    reply.code(200).send({ success: true, data: lead });
+    return c.json({ success: true, data: lead }, 200);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      reply.code(400).send({
-        error: 'Validation Error',
-        message: 'Invalid request body',
-        details: error.errors,
-      });
-      return;
+      return c.json(
+        { error: "Validation Error", message: "Invalid request body", details: error.errors },
+        400,
+      );
     }
 
     if (error instanceof Error) {
-      const notFoundErrors = ['Lead not found', 'Admin not found', 'Converted user not found', 'Converted client not found'];
+      const notFoundErrors = ["Lead not found", "Admin not found", "Converted user not found", "Converted client not found"];
       if (notFoundErrors.includes(error.message)) {
-        reply.code(404).send({ error: 'Not Found', message: error.message });
-        return;
+        return c.json({ error: "Not Found", message: error.message }, 404);
       }
-      if (error.message === 'Cannot assign lead to an inactive admin') {
-        reply.code(400).send({ error: 'Bad Request', message: error.message });
-        return;
+      if (error.message === "Cannot assign lead to an inactive admin") {
+        return c.json({ error: "Bad Request", message: error.message }, 400);
       }
     }
 
-    logger.error('Error updating lead', error instanceof Error ? error : new Error(String(error)));
+    logger.error("Error updating lead", error instanceof Error ? error : new Error(String(error)));
     throw error;
   }
 }

@@ -1,12 +1,11 @@
 /**
  * Cloudflare Workers Entry Point
  *
- * Routes fetch events through Fastify's inject() API (no node:http needed).
+ * Hono natively supports Cloudflare Workers — no inject() bridge needed.
  *
- * Database access uses @prisma/adapter-pg which internally creates a pg Pool
- * lazily on first query — after Fastify has finished initializing. The
- * connection goes through Supabase's Supavisor pooler over TCP, supported
- * by Workers' nodejs_compat flag (node:net + node:tls).
+ * Database access uses @prisma/adapter-pg which creates a pg Pool lazily
+ * on first query. The connection goes through Supabase's Supavisor pooler
+ * over TCP, supported by Workers' nodejs_compat flag.
  *
  * Uses the "worker" Prisma generator (WASM engine, runtime = "cloudflare")
  * so the query engine runs inside the V8 isolate.
@@ -16,7 +15,6 @@ import { PrismaClient } from "./generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { initPrisma } from "./db/client";
 import { buildApp } from "./app";
-import type { FastifyInstance } from "fastify";
 
 interface WorkerEnv {
   HYPERDRIVE: Hyperdrive;
@@ -33,9 +31,6 @@ interface WorkerEnv {
   PORT?: string;
   HOST?: string;
 }
-
-let fastifyApp: FastifyInstance | null = null;
-let appReady: Promise<void> | null = null;
 
 const KNOWN_ENV_KEYS = [
   "DATABASE_URL",
@@ -60,103 +55,32 @@ function populateProcessEnv(workerEnv: WorkerEnv): void {
   }
 }
 
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-): Promise<T> {
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(
-      () => reject(new Error(`Timeout: ${label} took longer than ${ms}ms`)),
-      ms,
-    ),
-  );
-  return Promise.race([promise, timeout]);
-}
+let initialized = false;
 
-async function initializeApp(workerEnv: WorkerEnv): Promise<void> {
-  console.log("[init] 1 - starting");
+function ensureInitialized(workerEnv: WorkerEnv): void {
+  if (initialized) return;
+
+  populateProcessEnv(workerEnv);
 
   const adapter = new PrismaPg({
     connectionString: workerEnv.HYPERDRIVE.connectionString,
   });
-  console.log("[init] 2 - adapter created");
 
   const client = new PrismaClient({ adapter });
-  console.log("[init] 3 - prisma client created");
-
   initPrisma(client);
-  console.log("[init] 4 - prisma injected");
 
-  const app = await buildApp({ pluginTimeout: 0 });
-  console.log("[init] 5 - buildApp done");
-
-  await app.ready();
-  console.log("[init] 6 - app.ready() done");
-
-  fastifyApp = app;
-  console.log("[init] 7 - complete");
+  initialized = true;
 }
+
+const app = buildApp();
 
 export default {
   async fetch(
     request: Request,
     workerEnv: WorkerEnv,
-    _ctx: ExecutionContext,
+    ctx: ExecutionContext,
   ): Promise<Response> {
-    populateProcessEnv(workerEnv);
-
-    if (!appReady) {
-      appReady = withTimeout(
-        initializeApp(workerEnv),
-        25_000,
-        "initializeApp",
-      ).catch((err) => {
-        appReady = null;
-        throw err;
-      });
-    }
-    await appReady;
-
-    const url = new URL(request.url);
-
-    const headers: Record<string, string> = {};
-    request.headers.forEach((value, key) => {
-      headers[key] = value;
-    });
-
-    const hasBody = request.method !== "GET" && request.method !== "HEAD";
-    const payload = hasBody
-      ? Buffer.from(await request.arrayBuffer())
-      : undefined;
-
-    const res = await fastifyApp!.inject({
-      method: request.method as
-        | "GET"
-        | "POST"
-        | "PUT"
-        | "PATCH"
-        | "DELETE"
-        | "HEAD"
-        | "OPTIONS",
-      url: url.pathname + url.search,
-      headers,
-      payload,
-    });
-
-    const responseHeaders = new Headers();
-    for (const [key, value] of Object.entries(res.headers)) {
-      if (value === undefined) continue;
-      if (Array.isArray(value)) {
-        for (const v of value) responseHeaders.append(key, String(v));
-      } else {
-        responseHeaders.set(key, String(value));
-      }
-    }
-
-    return new Response(res.rawPayload, {
-      status: res.statusCode,
-      headers: responseHeaders,
-    });
+    ensureInitialized(workerEnv);
+    return app.fetch(request, workerEnv, ctx);
   },
 };

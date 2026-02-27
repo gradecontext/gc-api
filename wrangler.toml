@@ -14,11 +14,6 @@ LOG_LEVEL = "info"
 PORT = "8080"
 HOST = "0.0.0.0"
 
-# Force pino to its Node.js entry — wrangler defaults to the browser
-# entry (which lacks `symbols`) because Workers is browser-like.
-[alias]
-pino = "./node_modules/pino/pino.js"
-
 [build]
 command = "npx prisma generate"
 

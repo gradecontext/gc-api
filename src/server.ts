@@ -1,11 +1,12 @@
 /**
  * Server Entry Point (Node.js)
  *
- * Starts the Fastify HTTP server for local development.
+ * Starts the Hono HTTP server for local development using @hono/node-server.
  * For Cloudflare Workers deployment, see src/worker.ts.
  */
 
 import "dotenv/config";
+import { serve } from "@hono/node-server";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
@@ -26,14 +27,15 @@ initPrisma(
 
 async function start() {
   try {
-    const app = await buildApp();
+    const app = buildApp();
+    const port = parseInt(env.PORT, 10);
 
-    await app.listen({
-      port: parseInt(env.PORT, 10),
-      host: env.HOST,
-    });
-
-    logger.info(`Server listening on http://${env.HOST}:${env.PORT}`);
+    serve(
+      { fetch: app.fetch, port, hostname: env.HOST },
+      (info) => {
+        logger.info(`Server listening on http://${env.HOST}:${info.port}`);
+      },
+    );
 
     try {
       await prisma.$queryRaw`SELECT 1`;
