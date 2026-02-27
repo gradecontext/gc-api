@@ -22,6 +22,10 @@ pino = "./node_modules/pino/pino.js"
 [build]
 command = "npx prisma generate"
 
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "09fb18930f5c45bf8e8256bbab6f761b"
+
 # ─── Secrets ────────────────────────────────────────────────
 # NEVER put secrets in this file. Use one of:
 #

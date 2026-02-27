@@ -19,6 +19,7 @@ import { buildApp } from "./app";
 import type { FastifyInstance } from "fastify";
 
 interface WorkerEnv {
+  HYPERDRIVE: Hyperdrive;
   [key: string]: unknown;
   DATABASE_URL: string;
   SUPABASE_URL: string;
@@ -74,12 +75,8 @@ function withTimeout<T>(
 }
 
 async function initializeApp(workerEnv: WorkerEnv): Promise<void> {
-  // PrismaPg stores the config now but does NOT create a Pool or open any
-  // TCP connection yet. The Pool is created lazily on the first query,
-  // which keeps the Fastify plugin initialization free of network I/O.
   const adapter = new PrismaPg({
-    connectionString: workerEnv.DATABASE_URL,
-    ssl: true,
+    connectionString: workerEnv.HYPERDRIVE.connectionString, // <-- use this
   });
   const client = new PrismaClient({ adapter });
   initPrisma(client);
