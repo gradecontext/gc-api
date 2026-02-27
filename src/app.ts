@@ -9,7 +9,6 @@
  */
 
 import Fastify from "fastify";
-import cors from "@fastify/cors";
 import { randomUUID } from "crypto";
 import { env } from "./config/env";
 import { logger } from "./utils/logger";
