@@ -3,14 +3,17 @@
  *
  * Routes fetch events through Fastify's inject() API (no node:http needed).
  *
- * Database access uses Prisma Accelerate — an HTTP-based proxy — because
- * Workers cannot open raw TCP sockets to Postgres on port 5432/6543.
- * The pg Pool / @prisma/adapter-pg path is only used in the Node.js
- * entry point (server.ts) for local development.
+ * Database access uses @prisma/adapter-pg which internally creates a pg Pool
+ * lazily on first query — after Fastify has finished initializing. The
+ * connection goes through Supabase's Supavisor pooler over TCP, supported
+ * by Workers' nodejs_compat flag (node:net + node:tls).
+ *
+ * Uses the "worker" Prisma generator (WASM engine, runtime = "cloudflare")
+ * so the query engine runs inside the V8 isolate.
  */
 
-import { PrismaClient } from "@prisma/client/edge";
-import { withAccelerate } from "@prisma/extension-accelerate";
+import { PrismaClient } from "./generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { initPrisma } from "./db/client";
 import { buildApp } from "./app";
 import type { FastifyInstance } from "fastify";
@@ -71,14 +74,15 @@ function withTimeout<T>(
 }
 
 async function initializeApp(workerEnv: WorkerEnv): Promise<void> {
-  // Prisma Accelerate — queries go over HTTPS, no TCP socket needed.
-  // DATABASE_URL must be the Accelerate connection string:
-  //   prisma://accelerate.prisma-data.net/?api_key=...
-  const client = new PrismaClient({
-    datasourceUrl: workerEnv.DATABASE_URL,
-  }).$extends(withAccelerate());
-
-  initPrisma(client as any);
+  // PrismaPg stores the config now but does NOT create a Pool or open any
+  // TCP connection yet. The Pool is created lazily on the first query,
+  // which keeps the Fastify plugin initialization free of network I/O.
+  const adapter = new PrismaPg({
+    connectionString: workerEnv.DATABASE_URL,
+    ssl: true,
+  });
+  const client = new PrismaClient({ adapter });
+  initPrisma(client);
 
   const app = await buildApp({ pluginTimeout: 0 });
   await app.ready();
@@ -96,7 +100,7 @@ export default {
     if (!appReady) {
       appReady = withTimeout(
         initializeApp(workerEnv),
-        10_000,
+        25_000,
         "initializeApp",
       ).catch((err) => {
         appReady = null;
