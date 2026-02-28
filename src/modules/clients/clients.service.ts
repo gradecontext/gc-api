@@ -6,24 +6,24 @@
  * and can also serve a standalone POST /clients endpoint.
  */
 
-import { randomBytes } from 'crypto';
-import { Prisma } from '@prisma/client';
-import { logger } from '../../utils/logger';
+import { randomBytes } from "crypto";
+import { Prisma } from "@prisma/client";
+import { logger } from "../../utils/logger";
 import {
   createClientRecord,
   findClientBySlug,
   ClientCreateData,
-} from './clients.repository';
-import { CreateClientInput, ClientResponse } from './clients.types';
+} from "./clients.repository";
+import { CreateClientInput, ClientResponse } from "./clients.types";
 
 /**
  * Generate an alphanumeric random key (upper + lower + digits only).
  */
 export function generateRandomKey(length: number = 12): string {
   const chars =
-    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   const bytes = randomBytes(length);
-  let result = '';
+  let result = "";
   for (let i = 0; i < length; i++) {
     result += chars[bytes[i] % chars.length];
   }
@@ -38,10 +38,10 @@ export function generateSlug(name: string): string {
   return name
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '') // strip non-alphanumeric except spaces and hyphens
-    .replace(/[\s]+/g, '-') // spaces → hyphens
-    .replace(/-+/g, '-') // collapse consecutive hyphens
-    .replace(/^-|-$/g, ''); // trim leading/trailing hyphens
+    .replace(/[^a-z0-9\s-]/g, "") // strip non-alphanumeric except spaces and hyphens
+    .replace(/[\s]+/g, "-") // spaces → hyphens
+    .replace(/-+/g, "-") // collapse consecutive hyphens
+    .replace(/^-|-$/g, ""); // trim leading/trailing hyphens
 }
 
 /**
@@ -49,7 +49,7 @@ export function generateSlug(name: string): string {
  * "adam@emergent.com" → "emergent.com"
  */
 export function extractDomainFromEmail(email: string): string {
-  const parts = email.split('@');
+  const parts = email.split("@");
   return parts[parts.length - 1].toLowerCase();
 }
 
@@ -59,39 +59,41 @@ export function extractDomainFromEmail(email: string): string {
  * but won't be auto-grouped into the same client by domain.
  */
 const PUBLIC_EMAIL_DOMAINS = new Set([
-  'gmail.com',
-  'googlemail.com',
-  'google.com',
-  'outlook.com',
-  'hotmail.com',
-  'live.com',
-  'msn.com',
-  'yahoo.com',
-  'yahoo.co.uk',
-  'yahoo.co.in',
-  'ymail.com',
-  'aol.com',
-  'icloud.com',
-  'me.com',
-  'mac.com',
-  'protonmail.com',
-  'proton.me',
-  'zoho.com',
-  'zohomail.com',
-  'mail.com',
-  'gmx.com',
-  'gmx.net',
-  'fastmail.com',
-  'tutanota.com',
-  'tuta.io',
-  'hey.com',
-  'pm.me',
-  'yandex.com',
-  'yandex.ru',
-  'qq.com',
-  '163.com',
-  '126.com',
-  'rediffmail.com',
+  "gmail.com",
+  "googlemail.com",
+  "google.com",
+  "outlook.com",
+  "hotmail.com",
+  "live.com",
+  "msn.com",
+  "yahoo.com",
+  "yahoo.co.uk",
+  "yahoo.co.in",
+  "ymail.com",
+  "aol.com",
+  "icloud.com",
+  "me.com",
+  "mac.com",
+  "protonmail.com",
+  "proton.me",
+  "zoho.com",
+  "zohomail.com",
+  "mail.com",
+  "gmx.com",
+  "gmx.net",
+  "fastmail.com",
+  "tutanota.com",
+  "tuta.io",
+  "hey.com",
+  "pm.me",
+  "yandex.com",
+  "yandex.ru",
+  "qq.com",
+  "163.com",
+  "126.com",
+  "rediffmail.com",
+  "yahoo.com",
+  "xyz.com",
 ]);
 
 /**
@@ -114,7 +116,7 @@ export function isPublicEmailDomain(domain: string): boolean {
 export async function clientCreate(
   input: CreateClientInput,
   domain?: string,
-  tx?: Prisma.TransactionClient
+  tx?: Prisma.TransactionClient,
 ): Promise<ClientResponse> {
   const slug = generateSlug(input.client_name);
 
@@ -126,7 +128,7 @@ export async function clientCreate(
 
   const webhookSecret = generateRandomKey(12);
   const apiKey = generateRandomKey(12);
-  const plan = input.plan ?? 'STARTER';
+  const plan = input.plan ?? "STARTER";
 
   const data: ClientCreateData = {
     name: input.client_name,
@@ -147,7 +149,7 @@ export async function clientCreate(
 
   const client = await createClientRecord(data, tx);
 
-  logger.info('Client created successfully', {
+  logger.info("Client created successfully", {
     clientId: client.id,
     slug: client.slug,
     plan: client.plan,
@@ -160,7 +162,7 @@ export async function clientCreate(
  * Format a database client record to the API response shape.
  */
 export function formatClientResponse(
-  client: NonNullable<Awaited<ReturnType<typeof createClientRecord>>>
+  client: NonNullable<Awaited<ReturnType<typeof createClientRecord>>>,
 ): ClientResponse {
   return {
     id: client.id,
