@@ -17,6 +17,10 @@ import { env } from "../config/env";
 import { logger } from "../utils/logger";
 import { prisma } from "../db/client";
 import { verifySupabaseJwt } from "../lib/jwt";
+import {
+  findMembershipByUserAndClient,
+  findActiveMembershipsForUser,
+} from "../modules/memberships/memberships.repository";
 
 function extractApiKey(c: Context): string | null {
   const apiKeyHeader = c.req.header("x-api-key");
@@ -67,21 +71,14 @@ async function resolveClientForUser(
   requestedClientId: number | null,
 ): Promise<{ clientId: number; membershipRole: string } | null> {
   if (requestedClientId) {
-    const membership = await prisma.membership.findUnique({
-      where: { userId_clientId: { userId, clientId: requestedClientId } },
-      select: { clientId: true, role: true, status: true },
-    });
+    const membership = await findMembershipByUserAndClient(userId, requestedClientId);
     if (membership && membership.status === "ACTIVE") {
       return { clientId: membership.clientId, membershipRole: membership.role };
     }
     return null;
   }
 
-  const activeMemberships = await prisma.membership.findMany({
-    where: { userId, status: "ACTIVE" },
-    select: { clientId: true, role: true },
-    take: 2,
-  });
+  const activeMemberships = await findActiveMembershipsForUser(userId);
 
   if (activeMemberships.length === 1) {
     return {
