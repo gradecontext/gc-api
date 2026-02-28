@@ -18,6 +18,8 @@ import { decisionsRoutes } from "./modules/decisions/decisions.routes";
 import { usersRoutes } from "./modules/users/users.routes";
 import { adminsRoutes } from "./modules/admins/admins.routes";
 import { leadsRoutes } from "./modules/leads/leads.routes";
+import { membershipsRoutes } from "./modules/memberships/memberships.routes";
+import { notificationsRoutes } from "./modules/notifications/notifications.routes";
 
 export function buildApp() {
   const app = new Hono();
@@ -76,6 +78,8 @@ export function buildApp() {
   app.route("/api/v1", usersRoutes);
   app.route("/api/v1", adminsRoutes);
   app.route("/api/v1", leadsRoutes);
+  app.route("/api/v1", membershipsRoutes);
+  app.route("/api/v1", notificationsRoutes);
 
   logger.info("Application configured", {
     environment: env.NODE_ENV,

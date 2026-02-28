@@ -61,10 +61,6 @@ const createUserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).optional(),
   title: z.string().optional(),
-  role: z
-    .enum(["OWNER", "ADMIN", "APPROVER", "VIEWER"])
-    .optional()
-    .default("VIEWER"),
   display_name: z.string().max(150).optional(),
   user_name: z.string().max(100).optional(),
   image_url: z.string().url().optional(),
@@ -120,12 +116,22 @@ export async function createUserHandler(c: Context) {
 
     if (result.created) {
       return c.json(
-        { success: true, message: "User created successfully", data: result.user },
+        {
+          success: true,
+          message: "User created successfully",
+          membership_status: result.membership_status,
+          data: result.user,
+        },
         201,
       );
     } else {
       return c.json(
-        { success: true, message: "User already registered", existing: true, data: result.user },
+        {
+          success: true,
+          message: "Membership created for existing user",
+          membership_status: result.membership_status,
+          data: result.user,
+        },
         200,
       );
     }
@@ -141,7 +147,7 @@ export async function createUserHandler(c: Context) {
       const errorMap: Record<string, number> = {
         "Client not found": 404,
         "Client account is inactive": 403,
-        "A user with this email already exists for this client": 409,
+        "You already have a membership for this organization": 409,
         "Email does not match Supabase account. Use the email associated with your authentication.": 400,
         "Company data missing. Either client_id or client_name is required.": 400,
       };

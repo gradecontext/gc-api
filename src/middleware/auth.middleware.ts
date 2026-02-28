@@ -5,7 +5,11 @@
  * 1. API Key — for B2B client integrations (X-API-Key header or Bearer token)
  * 2. Supabase JWT — for user-facing endpoints (Bearer token verified via Supabase)
  *
- * The middleware tries API key first, then falls back to Supabase JWT.
+ * Client context resolution for Supabase users:
+ * - If X-Client-Id header is present → verify the user has an ACTIVE membership
+ * - Otherwise → auto-select when the user has exactly one ACTIVE membership
+ * - When there are multiple ACTIVE memberships and no header, clientId is NOT set
+ *   (endpoints that need it should return an appropriate error)
  */
 
 import { Context, MiddlewareHandler } from "hono";
@@ -42,19 +46,57 @@ async function resolveClientApiKey(apiKey: string): Promise<number | null> {
 
 async function resolveSupabaseUser(
   supabaseAuthId: string,
-): Promise<{ clientId: number; userId: number } | null> {
+): Promise<{ userId: number } | null> {
   const user = await prisma.user.findUnique({
     where: { supabaseAuthId },
-    select: { id: true, clientId: true },
+    select: { id: true },
   });
   if (!user) return null;
-  return { clientId: user.clientId, userId: user.id };
+  return { userId: user.id };
+}
+
+/**
+ * Resolve the clientId for an authenticated user.
+ *
+ * Priority:
+ * 1. X-Client-Id header (explicit selection)
+ * 2. Auto-select if exactly one ACTIVE membership
+ */
+async function resolveClientForUser(
+  userId: number,
+  requestedClientId: number | null,
+): Promise<{ clientId: number; membershipRole: string } | null> {
+  if (requestedClientId) {
+    const membership = await prisma.membership.findUnique({
+      where: { userId_clientId: { userId, clientId: requestedClientId } },
+      select: { clientId: true, role: true, status: true },
+    });
+    if (membership && membership.status === "ACTIVE") {
+      return { clientId: membership.clientId, membershipRole: membership.role };
+    }
+    return null;
+  }
+
+  const activeMemberships = await prisma.membership.findMany({
+    where: { userId, status: "ACTIVE" },
+    select: { clientId: true, role: true },
+    take: 2,
+  });
+
+  if (activeMemberships.length === 1) {
+    return {
+      clientId: activeMemberships[0].clientId,
+      membershipRole: activeMemberships[0].role,
+    };
+  }
+
+  return null;
 }
 
 /**
  * Unified authentication middleware.
  *
- * Sets context variables: clientId, userId, supabaseUserId, supabaseUserEmail
+ * Sets context variables: clientId, userId, supabaseUserId, supabaseUserEmail, membershipRole
  */
 export const authenticate: MiddlewareHandler = async (c, next) => {
   // Strategy 1: X-API-Key header or query param
@@ -99,13 +141,27 @@ export const authenticate: MiddlewareHandler = async (c, next) => {
 
         const localUser = await resolveSupabaseUser(payload.sub);
         if (localUser) {
-          c.set("clientId", localUser.clientId);
           c.set("userId", localUser.userId);
+
+          const requestedClientId = c.req.header("x-client-id")
+            ? parseInt(c.req.header("x-client-id")!, 10)
+            : null;
+
+          const resolved = await resolveClientForUser(
+            localUser.userId,
+            requestedClientId && !isNaN(requestedClientId) ? requestedClientId : null,
+          );
+
+          if (resolved) {
+            c.set("clientId", resolved.clientId);
+            c.set("membershipRole", resolved.membershipRole);
+          }
         }
 
         logger.debug("Supabase JWT authenticated", {
           supabaseUserId: payload.sub,
-          clientId: localUser?.clientId,
+          userId: localUser?.userId,
+          clientId: c.get("clientId"),
         });
         return next();
       }

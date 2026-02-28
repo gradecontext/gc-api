@@ -3,14 +3,14 @@
  * Central type definitions for the users domain
  */
 
-import { UserRole, Gender } from '@prisma/client';
+import { Gender, UserRole, MembershipStatus, ClientPlan } from '@prisma/client';
 import { ClientInputForUser, ClientResponse } from '../clients/clients.types';
 
-export type { UserRole, Gender };
+export type { Gender, UserRole, MembershipStatus };
 
 /**
  * POST /users request body.
- * The `client` object must contain either `client_id` (to attach to an existing
+ * The `client` object must contain either `client_id` (to join an existing
  * client) or `client_name` (to find-or-create a client).
  */
 export interface CreateUserInput {
@@ -18,7 +18,6 @@ export interface CreateUserInput {
   email: string;
   name?: string;
   title?: string;
-  role?: UserRole;
   display_name?: string;
   user_name?: string;
   image_url?: string;
@@ -42,14 +41,30 @@ export interface UpdateUserInput {
   gender?: Gender | null;
 }
 
+export interface MembershipResponse {
+  id: number;
+  client_id: number;
+  role: UserRole;
+  status: MembershipStatus;
+  created_at: Date;
+  updated_at: Date;
+  client?: {
+    id: number;
+    name: string;
+    slug: string;
+    domain: string | null;
+    logo: string | null;
+    plan: ClientPlan;
+    active: boolean;
+  };
+}
+
 export interface UserResponse {
   id: number;
   supabase_auth_id: string | null;
-  client_id: number;
   email: string;
   name: string | null;
   title: string | null;
-  role: UserRole;
   active: boolean;
   verified: boolean;
   display_name: string | null;
@@ -62,5 +77,6 @@ export interface UserResponse {
   gender: Gender | null;
   created_at: Date;
   updated_at: Date;
+  memberships: MembershipResponse[];
   client?: ClientResponse;
 }

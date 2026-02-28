@@ -3,20 +3,18 @@
  * Data access layer for user operations
  *
  * All mutation/query methods accept an optional Prisma transaction client
- * so they can participate in cross-module transactions (e.g. atomic user+client creation).
+ * so they can participate in cross-module transactions (e.g. atomic user+membership creation).
  */
 
 import { prisma } from '../../db/client';
-import { UserRole, Gender, Prisma } from '@prisma/client';
+import { Gender, Prisma } from '@prisma/client';
 import { logger } from '../../utils/logger';
 
 export interface UserCreateData {
   supabaseAuthId: string;
-  clientId: number;
   email: string;
   name?: string;
   title?: string;
-  role?: UserRole;
   displayName?: string;
   userName?: string;
   imageUrl?: string;
@@ -43,11 +41,9 @@ export interface UserUpdateData {
 const userSelect = {
   id: true,
   supabaseAuthId: true,
-  clientId: true,
   email: true,
   name: true,
   title: true,
-  role: true,
   active: true,
   verified: true,
   displayName: true,
@@ -62,8 +58,35 @@ const userSelect = {
   updatedAt: true,
 } as const;
 
+const userWithMembershipsSelect = {
+  ...userSelect,
+  memberships: {
+    select: {
+      id: true,
+      clientId: true,
+      role: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      client: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          domain: true,
+          logo: true,
+          plan: true,
+          active: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' as const },
+  },
+} as const;
+
 /**
- * Create a new user linked to a Supabase auth account
+ * Create a new user (identity only — no client attachment).
+ * Membership is created separately.
  */
 export async function createUser(
   data: UserCreateData,
@@ -73,18 +96,15 @@ export async function createUser(
 
   logger.debug('Creating user', {
     supabaseAuthId: data.supabaseAuthId,
-    clientId: data.clientId,
     email: data.email,
   });
 
   return await db.user.create({
     data: {
       supabaseAuthId: data.supabaseAuthId,
-      clientId: data.clientId,
       email: data.email,
       name: data.name ?? null,
       title: data.title ?? null,
-      role: data.role ?? 'VIEWER',
       verified: true,
       displayName: data.displayName ?? null,
       userName: data.userName ?? null,
@@ -95,12 +115,12 @@ export async function createUser(
       userBioBrief: data.userBioBrief ?? null,
       gender: data.gender ?? null,
     },
-    select: userSelect,
+    select: userWithMembershipsSelect,
   });
 }
 
 /**
- * Find user by Supabase auth ID
+ * Find user by Supabase auth ID (includes memberships)
  */
 export async function findUserBySupabaseId(
   supabaseAuthId: string,
@@ -109,7 +129,21 @@ export async function findUserBySupabaseId(
   const db = tx ?? prisma;
   return await db.user.findUnique({
     where: { supabaseAuthId },
-    select: userSelect,
+    select: userWithMembershipsSelect,
+  });
+}
+
+/**
+ * Find user by email (globally unique)
+ */
+export async function findUserByEmail(
+  email: string,
+  tx?: Prisma.TransactionClient
+) {
+  const db = tx ?? prisma;
+  return await db.user.findUnique({
+    where: { email },
+    select: userWithMembershipsSelect,
   });
 }
 
@@ -119,24 +153,7 @@ export async function findUserBySupabaseId(
 export async function findUserById(id: number) {
   return await prisma.user.findUnique({
     where: { id },
-    select: userSelect,
-  });
-}
-
-/**
- * Find user by client + email
- */
-export async function findUserByClientEmail(
-  clientId: number,
-  email: string,
-  tx?: Prisma.TransactionClient
-) {
-  const db = tx ?? prisma;
-  return await db.user.findUnique({
-    where: {
-      clientId_email: { clientId, email },
-    },
-    select: userSelect,
+    select: userWithMembershipsSelect,
   });
 }
 
@@ -160,7 +177,7 @@ export async function updateUser(id: number, data: UserUpdateData) {
       userBioBrief: data.userBioBrief,
       gender: data.gender,
     },
-    select: userSelect,
+    select: userWithMembershipsSelect,
   });
 }
 
@@ -171,6 +188,6 @@ export async function linkSupabaseAuth(userId: number, supabaseAuthId: string) {
   return await prisma.user.update({
     where: { id: userId },
     data: { supabaseAuthId },
-    select: userSelect,
+    select: userWithMembershipsSelect,
   });
 }

@@ -122,9 +122,9 @@ model Client {
   createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  addedByUser      User?      @relation("ClientAddedBy", fields: [addedBy], references: [id], onDelete: SetNull)
-  modifiedByUser   User?      @relation("ClientModifiedBy", fields: [modifiedBy], references: [id], onDelete: SetNull)
-  users            User[]
+  addedByUser      User?        @relation("ClientAddedBy", fields: [addedBy], references: [id], onDelete: SetNull)
+  modifiedByUser   User?        @relation("ClientModifiedBy", fields: [modifiedBy], references: [id], onDelete: SetNull)
+  memberships      Membership[]
   subjectCompanies SubjectCompany[]
   decisions        Decision[]
   policies         Policy[]
@@ -147,16 +147,15 @@ enum ClientPlan {
   @@map("client_plan")
 }
 
-// Users are humans within client organizations who make, review, or view decisions.
+// Users are identity records — a person who can belong to one or more
+// organizations (Clients) through the Membership join table.
 // supabaseAuthId links to Supabase auth.users for authentication.
 model User {
   id              Int      @id @default(autoincrement())
   supabaseAuthId  String?  @unique @map("supabase_auth_id") @db.Uuid
-  clientId        Int      @map("client_id")
-  email           String
+  email           String   @unique
   name            String?
-  title           String?  // Job title, e.g. "VP Sales", "Head of Partnerships"
-  role            UserRole @default(VIEWER)
+  title           String?
   active          Boolean  @default(true)
   verified        Boolean  @default(true)
   displayName     String?  @map("display_name") @db.VarChar(150)
@@ -170,7 +169,8 @@ model User {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  client            Client                  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  memberships       Membership[]
+  notifications     Notification[]
   clientsAdded      Client[]                @relation("ClientAddedBy")
   clientsModified   Client[]                @relation("ClientModifiedBy")
   decisionsMade     Decision[]              @relation("DecisionMaker")
@@ -178,8 +178,6 @@ model User {
   decisionOutcomes  DecisionOutcome[]
   convertedLeads    Lead[]
 
-  @@unique([clientId, email])
-  @@index([clientId])
   @@index([supabaseAuthId])
   @@map("users")
 }
@@ -190,6 +188,73 @@ enum UserRole {
   APPROVER
   VIEWER
   @@map("user_role")
+}
+
+// ============================================================
+// MEMBERSHIP (User ↔ Client join table)
+// ============================================================
+
+// Memberships link users to organizations and track per-org role and approval status.
+// First user to create a company gets ADMIN + ACTIVE; subsequent joiners are VIEWER + PENDING
+// until approved by an admin (or auto-approved via domain matching).
+model Membership {
+  id        Int              @id @default(autoincrement())
+  userId    Int              @map("user_id")
+  clientId  Int              @map("client_id")
+  role      UserRole         @default(VIEWER)
+  status    MembershipStatus @default(PENDING)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([userId])
+  @@index([clientId])
+  @@index([clientId, status])
+  @@map("memberships")
+}
+
+enum MembershipStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+
+  @@map("membership_status")
+}
+
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
+// In-app notifications for membership requests, approvals, and system events.
+// Displayed on the user's dashboard with a read/unread flag.
+model Notification {
+  id        Int              @id @default(autoincrement())
+  userId    Int              @map("user_id")
+  type      NotificationType
+  title     String           @db.VarChar(255)
+  message   String           @db.Text
+  metadata  Json?            @default("{}")
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  MEMBERSHIP_REQUEST
+  MEMBERSHIP_APPROVED
+  MEMBERSHIP_REJECTED
+  SYSTEM
+
+  @@map("notification_type")
 }
 
 enum Gender {

@@ -1,12 +1,19 @@
 /**
  * Users Service
- * Business logic for user creation and management
+ * Business logic for user creation and the self-onboarding flow
  *
- * Handles:
- * - Supabase-verified user creation (ensures the Supabase user exists)
- * - Atomic user + client creation in a single transaction
- * - Profile management
- * - User lookup
+ * Onboarding scenarios:
+ *
+ * Case A — New company:
+ *   User signs up → creates Client → Membership(ADMIN, ACTIVE)
+ *
+ * Case B — Existing company:
+ *   User signs up → Membership(VIEWER, PENDING)
+ *   Unless email domain matches client domain (and is not a public provider),
+ *   in which case auto-approve → Membership(VIEWER, ACTIVE)
+ *
+ * Case C — Returning user joining another org:
+ *   User already exists → create additional Membership (same rules as B)
  */
 
 import { logger } from "../../utils/logger";
@@ -14,13 +21,18 @@ import { prisma } from "../../db/client";
 import {
   createUser,
   findUserBySupabaseId,
-  findUserByClientEmail,
+  findUserByEmail,
   findUserById,
   updateUser,
   UserCreateData,
   UserUpdateData,
 } from "./users.repository";
-import { CreateUserInput, UpdateUserInput, UserResponse } from "./users.types";
+import {
+  CreateUserInput,
+  UpdateUserInput,
+  UserResponse,
+  MembershipResponse,
+} from "./users.types";
 import {
   findClientById,
   findClientByDomain,
@@ -33,28 +45,24 @@ import {
   formatClientResponse,
 } from "../clients/clients.service";
 import { ClientResponse } from "../clients/clients.types";
+import {
+  createMembership,
+  findMembershipByUserAndClient,
+} from "../memberships/memberships.repository";
+import { notifyClientAdmins } from "../notifications/notifications.service";
 
-/**
- * Create a user after verifying their Supabase auth identity.
- *
- * Flow:
- * 1. Verify the Supabase user exists and retrieve their trusted email
- * 2. Validate email consistency with the request
- * 3. Resolve or create the client (atomic transaction):
- *    a. If client_id is provided → verify it exists and is active
- *    b. If client_name is provided → extract domain from Supabase email,
- *       look up existing client by domain, or create a new one
- * 4. Check for duplicate users (by Supabase ID and by client+email)
- * 5. Create the local user record
- *
- * The entire client-resolution + user-creation runs inside a Prisma
- * transaction so a failure at any step rolls everything back.
- */
 export interface CreateUserResult {
   user: UserResponse;
   created: boolean;
+  membership_status: string;
 }
 
+/**
+ * Create (or find) a user and set up their membership for the specified company.
+ *
+ * The entire flow runs inside a Prisma transaction so a failure at any step
+ * rolls everything back.
+ */
 export async function createVerifiedUser(
   supabaseAuthId: string,
   supabaseEmail: string | null,
@@ -69,9 +77,6 @@ export async function createVerifiedUser(
     email: input.email,
   });
 
-  // The session middleware already verified the JWT cryptographically via JWKS,
-  // proving this Supabase user is real. The email claim from the verified JWT
-  // is the trusted source of truth — no admin API call needed.
   if (supabaseEmail && supabaseEmail !== input.email) {
     logger.warn("Email mismatch between Supabase JWT and input", {
       supabaseEmail,
@@ -84,51 +89,63 @@ export async function createVerifiedUser(
 
   const trustedEmail = supabaseEmail ?? input.email;
 
-  // Check if user already exists before starting a transaction.
-  // If so, return the existing profile so the frontend can redirect to login.
-  const existingBySupabase = await findUserBySupabaseId(supabaseAuthId);
-  if (existingBySupabase) {
-    logger.info("User already registered, returning existing profile", {
-      supabaseAuthId,
-      userId: existingBySupabase.id,
-    });
-    return { user: formatUserResponse(existingBySupabase), created: false };
-  }
+  // Check if this Supabase account already has a user record.
+  const existingUser = await findUserBySupabaseId(supabaseAuthId);
 
-  // Create user + resolve client atomically
-  const { user, client } = await prisma.$transaction(async (tx) => {
+  // Run everything in a transaction
+  const result = await prisma.$transaction(async (tx) => {
+    // --- Resolve or create the user identity ---
+    let user: NonNullable<Awaited<ReturnType<typeof createUser>>>;
+    let userCreated = false;
+
+    if (existingUser) {
+      user = existingUser;
+    } else {
+      // Also check by email — a user record may have been pre-created
+      const existingByEmail = await findUserByEmail(trustedEmail, tx);
+      if (existingByEmail) {
+        user = existingByEmail;
+      } else {
+        const userData: UserCreateData = {
+          supabaseAuthId,
+          email: trustedEmail,
+          name: input.name,
+          title: input.title,
+          displayName: input.display_name,
+          userName: input.user_name,
+          imageUrl: input.image_url,
+          userImage: input.user_image,
+          userImageCover: input.user_image_cover,
+          userBioDetail: input.user_bio_detail,
+          userBioBrief: input.user_bio_brief,
+          gender: input.gender,
+        };
+        user = await createUser(userData, tx);
+        userCreated = true;
+      }
+    }
+
     // --- Resolve client ---
     let resolvedClientId: number;
     let resolvedClient: ClientResponse | null = null;
+    let isNewClient = false;
 
     if (clientInput.client_id) {
-      // Path A: Attach to an existing client by ID
       const existingClient = await findClientById(clientInput.client_id, tx);
-
-      if (!existingClient) {
-        throw new Error("Client not found");
-      }
-      if (!existingClient.active) {
-        throw new Error("Client account is inactive");
-      }
-
+      if (!existingClient) throw new Error("Client not found");
+      if (!existingClient.active) throw new Error("Client account is inactive");
       resolvedClientId = existingClient.id;
       resolvedClient = formatClientResponse(existingClient);
     } else {
-      // Path B: Find-or-create client by domain derived from Supabase email
       const domain = extractDomainFromEmail(trustedEmail);
       const isPublicDomain = isPublicEmailDomain(domain);
 
-      // Only attempt domain-based matching for corporate email domains;
-      // public providers (gmail, outlook, etc.) are never matched by domain.
       const existingByDomain = isPublicDomain
         ? null
         : await findClientByDomain(domain, tx);
 
       if (existingByDomain) {
-        if (!existingByDomain.active) {
-          throw new Error("Client account is inactive");
-        }
+        if (!existingByDomain.active) throw new Error("Client account is inactive");
         resolvedClientId = existingByDomain.id;
         resolvedClient = formatClientResponse(existingByDomain);
 
@@ -137,7 +154,6 @@ export async function createVerifiedUser(
           clientId: resolvedClientId,
         });
       } else {
-        // Create a brand-new client; omit domain for public email providers
         resolvedClient = await clientCreate(
           {
             client_name: clientInput.client_name!,
@@ -155,6 +171,7 @@ export async function createVerifiedUser(
           tx,
         );
         resolvedClientId = resolvedClient.id;
+        isNewClient = true;
 
         logger.info("Created new client for user", {
           domain: isPublicDomain ? "(public domain, not stored)" : domain,
@@ -164,62 +181,113 @@ export async function createVerifiedUser(
       }
     }
 
-    // Guard against race condition: another request may have created
-    // the user between our pre-check and this point in the transaction.
-    const existingByEmail = await findUserByClientEmail(
+    // --- Check for existing membership ---
+    const existingMembership = await findMembershipByUserAndClient(
+      user.id,
       resolvedClientId,
-      trustedEmail,
       tx,
     );
-    if (existingByEmail) {
-      throw new Error("A user with this email already exists for this client");
+    if (existingMembership) {
+      throw new Error("You already have a membership for this organization");
     }
 
-    // --- Create user ---
-    const userData: UserCreateData = {
-      supabaseAuthId,
-      clientId: resolvedClientId,
-      email: trustedEmail,
-      name: input.name,
-      title: input.title,
-      role: input.role,
-      displayName: input.display_name,
-      userName: input.user_name,
-      imageUrl: input.image_url,
-      userImage: input.user_image,
-      userImageCover: input.user_image_cover,
-      userBioDetail: input.user_bio_detail,
-      userBioBrief: input.user_bio_brief,
-      gender: input.gender,
-    };
+    // --- Determine membership role & status ---
+    let membershipRole: "OWNER" | "ADMIN" | "APPROVER" | "VIEWER";
+    let membershipStatus: "PENDING" | "ACTIVE";
 
-    const createdUser = await createUser(userData, tx);
+    if (isNewClient) {
+      // First person to create this company → ADMIN + ACTIVE
+      membershipRole = "ADMIN";
+      membershipStatus = "ACTIVE";
+    } else {
+      // Joining an existing company
+      membershipRole = "VIEWER";
 
-    // Set audit fields on newly created clients (added_by = modified_by = this user).
-    // Skip for pre-existing clients that already have an added_by.
-    if (resolvedClient && resolvedClient.added_by === null) {
+      // Auto-approve if email domain matches client domain (and is not a public provider)
+      const userDomain = extractDomainFromEmail(trustedEmail);
+      const clientDomain = resolvedClient?.domain;
+
+      if (clientDomain && !isPublicEmailDomain(userDomain) && userDomain === clientDomain) {
+        membershipStatus = "ACTIVE";
+        logger.info("Auto-approving membership via domain match", {
+          userDomain,
+          clientDomain,
+        });
+      } else {
+        membershipStatus = "PENDING";
+      }
+    }
+
+    // --- Create membership ---
+    const membership = await createMembership(
+      {
+        userId: user.id,
+        clientId: resolvedClientId,
+        role: membershipRole,
+        status: membershipStatus,
+      },
+      tx,
+    );
+
+    // Set audit fields on newly created clients
+    if (isNewClient && resolvedClient && resolvedClient.added_by === null) {
       const updatedClient = await updateClientAuditFields(
         resolvedClientId,
-        createdUser.id,
+        user.id,
         tx,
       );
       resolvedClient = formatClientResponse(updatedClient);
     }
 
-    return { user: createdUser, client: resolvedClient };
+    // --- Notify client admins if membership is pending ---
+    if (membershipStatus === "PENDING") {
+      await notifyClientAdmins(
+        resolvedClientId,
+        user.id,
+        {
+          type: "MEMBERSHIP_REQUEST",
+          title: "New membership request",
+          message: `${user.name ?? user.email} has requested to join your organization.`,
+          metadata: {
+            membershipId: membership.id,
+            requestingUserId: user.id,
+            requestingUserEmail: user.email,
+            requestingUserName: user.name,
+          },
+        },
+        tx,
+      );
+    }
+
+    return {
+      user,
+      resolvedClient,
+      userCreated,
+      membershipStatus,
+    };
   });
 
-  logger.info("User created successfully", {
-    userId: user.id,
-    supabaseAuthId: user.supabaseAuthId,
-    clientId: user.clientId,
+  logger.info("User onboarding completed", {
+    userId: result.user.id,
+    supabaseAuthId: result.user.supabaseAuthId,
+    membershipStatus: result.membershipStatus,
+    userCreated: result.userCreated,
   });
 
-  const response = formatUserResponse(user);
-  if (client) {
-    response.client = client;
+  // Re-fetch the user to get fresh membership data (the in-transaction user
+  // was created before the membership was attached).
+  const freshUser = await findUserBySupabaseId(supabaseAuthId);
+  const response = formatUserResponse(freshUser ?? result.user);
+
+  if (result.resolvedClient) {
+    response.client = result.resolvedClient;
   }
-  return { user: response, created: true };
+
+  return {
+    user: response,
+    created: result.userCreated,
+    membership_status: result.membershipStatus,
+  };
 }
 
 /**
@@ -252,12 +320,8 @@ export async function updateUserProfile(
   supabaseAuthId: string,
   input: UpdateUserInput,
 ): Promise<UserResponse> {
-  // Verify the user belongs to this Supabase account
   const existing = await findUserById(userId);
-  if (!existing) {
-    throw new Error("User not found");
-  }
-
+  if (!existing) throw new Error("User not found");
   if (existing.supabaseAuthId !== supabaseAuthId) {
     throw new Error("Not authorized to update this user");
   }
@@ -276,9 +340,7 @@ export async function updateUserProfile(
   };
 
   const user = await updateUser(userId, updateData);
-
   logger.info("User profile updated", { userId: user.id });
-
   return formatUserResponse(user);
 }
 
@@ -291,11 +353,9 @@ function formatUserResponse(
   return {
     id: user.id,
     supabase_auth_id: user.supabaseAuthId,
-    client_id: user.clientId,
     email: user.email,
     name: user.name,
     title: user.title,
-    role: user.role,
     active: user.active,
     verified: user.verified,
     display_name: user.displayName,
@@ -308,5 +368,30 @@ function formatUserResponse(
     gender: user.gender,
     created_at: user.createdAt,
     updated_at: user.updatedAt,
+    memberships: (user.memberships ?? []).map(formatMembershipResponse),
+  };
+}
+
+function formatMembershipResponse(
+  m: NonNullable<Awaited<ReturnType<typeof findUserBySupabaseId>>>["memberships"][number],
+): MembershipResponse {
+  return {
+    id: m.id,
+    client_id: m.clientId,
+    role: m.role,
+    status: m.status,
+    created_at: m.createdAt,
+    updated_at: m.updatedAt,
+    client: m.client
+      ? {
+          id: m.client.id,
+          name: m.client.name,
+          slug: m.client.slug,
+          domain: m.client.domain,
+          logo: m.client.logo,
+          plan: m.client.plan,
+          active: m.client.active,
+        }
+      : undefined,
   };
 }
