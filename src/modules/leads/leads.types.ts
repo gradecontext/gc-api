@@ -13,6 +13,7 @@ export interface CreateLeadInput {
   company_size?: string;
   company_website?: string;
   plan_interest?: ClientPlan;
+  source?: string;
   message?: string;
 }
 
@@ -22,6 +23,7 @@ export interface UpdateLeadInput {
   company_size?: string;
   company_website?: string;
   plan_interest?: ClientPlan | null;
+  source?: string;
   message?: string;
   contacted?: boolean;
   status?: LeadStatus;
@@ -38,6 +40,7 @@ export interface LeadResponse {
   company_size: string | null;
   company_website: string | null;
   plan_interest: ClientPlan | null;
+  source: string | null;
   message: string | null;
   contacted: boolean;
   status: LeadStatus;

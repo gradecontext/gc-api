@@ -15,12 +15,10 @@ import { authenticate } from "../../middleware/auth.middleware";
 
 const admins = new Hono();
 
-admins.use("*", authenticate);
-
-admins.post("/admins", createAdminHandler);
-admins.get("/admins", listAdminsHandler);
-admins.get("/admins/:id", getAdminHandler);
-admins.patch("/admins/:id", updateAdminHandler);
-admins.delete("/admins/:id", deleteAdminHandler);
+admins.post("/admins", authenticate, createAdminHandler);
+admins.get("/admins", authenticate, listAdminsHandler);
+admins.get("/admins/:id", authenticate, getAdminHandler);
+admins.patch("/admins/:id", authenticate, updateAdminHandler);
+admins.delete("/admins/:id", authenticate, deleteAdminHandler);
 
 export { admins as adminsRoutes };

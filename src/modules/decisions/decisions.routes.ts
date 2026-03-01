@@ -13,10 +13,8 @@ import { authenticate } from "../../middleware/auth.middleware";
 
 const decisions = new Hono();
 
-decisions.use("*", authenticate);
-
-decisions.post("/decisions", createDecisionHandler);
-decisions.post("/decisions/:id/review", reviewDecisionHandler);
-decisions.get("/decisions/:id", getDecisionHandler);
+decisions.post("/decisions", authenticate, createDecisionHandler);
+decisions.post("/decisions/:id/review", authenticate, reviewDecisionHandler);
+decisions.get("/decisions/:id", authenticate, getDecisionHandler);
 
 export { decisions as decisionsRoutes };

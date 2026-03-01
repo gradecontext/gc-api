@@ -18,13 +18,23 @@ import { authenticate } from "../../middleware/auth.middleware";
 
 const memberships = new Hono();
 
-memberships.use("*", authenticate);
-
-memberships.get("/memberships/me", listMyMembershipsHandler);
-memberships.get("/memberships/client/:clientId", listClientMembersHandler);
-memberships.patch("/memberships/:id/approve", approveMembershipHandler);
-memberships.patch("/memberships/:id/reject", rejectMembershipHandler);
-memberships.patch("/memberships/:id/role", changeRoleHandler);
-memberships.delete("/memberships/:id", removeMembershipHandler);
+memberships.get("/memberships/me", authenticate, listMyMembershipsHandler);
+memberships.get(
+  "/memberships/client/:clientId",
+  authenticate,
+  listClientMembersHandler,
+);
+memberships.patch(
+  "/memberships/:id/approve",
+  authenticate,
+  approveMembershipHandler,
+);
+memberships.patch(
+  "/memberships/:id/reject",
+  authenticate,
+  rejectMembershipHandler,
+);
+memberships.patch("/memberships/:id/role", authenticate, changeRoleHandler);
+memberships.delete("/memberships/:id", authenticate, removeMembershipHandler);
 
 export { memberships as membershipsRoutes };

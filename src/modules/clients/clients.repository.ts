@@ -145,3 +145,28 @@ export async function findClientBySlug(
     select: clientSelect,
   });
 }
+
+/**
+ * Search clients by name using case-insensitive LIKE
+ */
+export async function findClientsByName(
+  name: string,
+  filters?: { skip?: number; take?: number }
+) {
+  const where = {
+    name: { contains: name, mode: "insensitive" as const },
+  };
+
+  const [clients, total] = await Promise.all([
+    prisma.client.findMany({
+      where,
+      select: clientSelect,
+      orderBy: { name: "asc" },
+      skip: filters?.skip,
+      take: filters?.take,
+    }),
+    prisma.client.count({ where }),
+  ]);
+
+  return { clients, total };
+}

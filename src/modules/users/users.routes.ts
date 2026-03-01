@@ -16,11 +16,9 @@ import { sessionAuth } from "../../middleware/session.middleware";
 
 const users = new Hono();
 
-users.use("*", sessionAuth(true));
-
-users.post("/users", createUserHandler);
-users.get("/users/me", getMeHandler);
-users.get("/users/:id", getUserHandler);
-users.patch("/users/:id", updateUserHandler);
+users.post("/users", sessionAuth(true), createUserHandler);
+users.get("/users/me", sessionAuth(true), getMeHandler);
+users.get("/users/:id", sessionAuth(true), getUserHandler);
+users.patch("/users/:id", sessionAuth(true), updateUserHandler);
 
 export { users as usersRoutes };

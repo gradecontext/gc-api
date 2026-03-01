@@ -12,6 +12,7 @@ import { logger } from "../../utils/logger";
 import {
   createClientRecord,
   findClientBySlug,
+  findClientsByName,
   ClientCreateData,
 } from "./clients.repository";
 import { CreateClientInput, ClientResponse } from "./clients.types";
@@ -156,6 +157,26 @@ export async function clientCreate(
   });
 
   return formatClientResponse(client);
+}
+
+/**
+ * Search clients by name (case-insensitive LIKE) with pagination.
+ */
+export async function searchClientsByName(
+  name: string,
+  page: number = 1,
+  limit: number = 25,
+): Promise<{ clients: ClientResponse[]; total: number; page: number; limit: number }> {
+  const skip = (page - 1) * limit;
+
+  const { clients, total } = await findClientsByName(name, { skip, take: limit });
+
+  return {
+    clients: clients.map(formatClientResponse),
+    total,
+    page,
+    limit,
+  };
 }
 
 /**

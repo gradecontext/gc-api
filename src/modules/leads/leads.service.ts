@@ -37,6 +37,7 @@ export async function createNewLead(
     companySize: input.company_size,
     companyWebsite: input.company_website,
     planInterest: input.plan_interest,
+    source: input.source,
     message: input.message,
   };
 
@@ -139,6 +140,7 @@ export async function updateLeadDetails(
     companySize: input.company_size,
     companyWebsite: input.company_website,
     planInterest: input.plan_interest,
+    source: input.source,
     message: input.message,
     contacted: input.contacted,
     status,
@@ -164,6 +166,7 @@ function formatLeadResponse(lead: LeadWithAdmin): LeadResponse {
     company_size: lead.companySize,
     company_website: lead.companyWebsite,
     plan_interest: lead.planInterest,
+    source: lead.source,
     message: lead.message,
     contacted: lead.contacted,
     status: lead.status,

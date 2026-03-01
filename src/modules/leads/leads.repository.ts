@@ -15,6 +15,7 @@ const leadSelect = {
   companySize: true,
   companyWebsite: true,
   planInterest: true,
+  source: true,
   message: true,
   contacted: true,
   status: true,
@@ -43,6 +44,7 @@ export interface LeadCreateData {
   companySize?: string;
   companyWebsite?: string;
   planInterest?: ClientPlan;
+  source?: string;
   message?: string;
 }
 
@@ -52,6 +54,7 @@ export interface LeadUpdateData {
   companySize?: string;
   companyWebsite?: string;
   planInterest?: ClientPlan | null;
+  source?: string;
   message?: string;
   contacted?: boolean;
   status?: LeadStatus;
@@ -71,6 +74,7 @@ export async function createLead(data: LeadCreateData) {
       companySize: data.companySize ?? null,
       companyWebsite: data.companyWebsite ?? null,
       planInterest: data.planInterest ?? null,
+      source: data.source ?? null,
       message: data.message ?? null,
     },
     select: leadWithAdminSelect,
@@ -134,6 +138,7 @@ export async function updateLead(id: number, data: LeadUpdateData) {
       companySize: data.companySize,
       companyWebsite: data.companyWebsite,
       planInterest: data.planInterest,
+      source: data.source,
       message: data.message,
       contacted: data.contacted,
       status: data.status,

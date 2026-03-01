@@ -15,10 +15,13 @@ import { authenticate } from "../../middleware/auth.middleware";
 
 const notifications = new Hono();
 
-notifications.use("*", authenticate);
-
-notifications.get("/notifications", listNotificationsHandler);
-notifications.patch("/notifications/read-all", markAllReadHandler);
-notifications.patch("/notifications/:id/read", markReadHandler);
+notifications.get("/notifications", authenticate, listNotificationsHandler);
+notifications.patch(
+  "/notifications/read-all",
+  authenticate,
+  markAllReadHandler,
+);
+notifications.patch("/notifications/:id/read", authenticate, markReadHandler);
+notifications.patch("/notifications/:id/read", authenticate, markReadHandler);
 
 export { notifications as notificationsRoutes };

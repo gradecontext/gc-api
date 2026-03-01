@@ -14,11 +14,9 @@ import { authenticate } from "../../middleware/auth.middleware";
 
 const leads = new Hono();
 
-leads.use("*", authenticate);
-
-leads.post("/leads", createLeadHandler);
-leads.get("/leads", listLeadsHandler);
-leads.get("/leads/:id", getLeadHandler);
-leads.patch("/leads/:id", updateLeadHandler);
+leads.post("/leads", authenticate, createLeadHandler);
+leads.get("/leads", authenticate, listLeadsHandler);
+leads.get("/leads/:id", authenticate, getLeadHandler);
+leads.patch("/leads/:id", authenticate, updateLeadHandler);
 
 export { leads as leadsRoutes };

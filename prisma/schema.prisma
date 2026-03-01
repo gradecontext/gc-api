@@ -34,7 +34,9 @@ model Admin {
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  leads Lead[]
+  leads            Lead[]
+  contactsHandled  ContactMessage[] @relation("ContactHandledBy")
+  betaApprovals    BetaAccessList[] @relation("BetaApprovedBy")
 
   @@map("admins")
 }
@@ -61,6 +63,7 @@ model Lead {
   companySize        String?     @map("company_size") @db.Text
   companyWebsite     String?     @map("company_website") @db.Text
   planInterest       ClientPlan? @map("plan_interest")
+  source             String?     @db.Text
   message            String?     @db.Text
   contacted          Boolean     @default(false)
   status             LeadStatus  @default(NEW)
@@ -707,4 +710,84 @@ enum WebhookEventStatus {
   SKIPPED
 
   @@map("webhook_event_status")
+}
+
+// ============================================================
+// CONTACT US
+// ============================================================
+
+// Captures inbound "Contact Us" form submissions from the public site.
+// Admins can mark messages as responded and track who handled them.
+model ContactMessage {
+  id          Int                  @id @default(autoincrement())
+  name        String               @db.Text
+  email       String               @db.Text
+  phone       String?              @db.Text
+  subject     String               @db.Text
+  message     String               @db.Text
+  source      String?              @db.Text
+  status      ContactMessageStatus @default(NEW)
+  priority    ContactPriority      @default(NORMAL)
+  contactedBy Int?                 @map("contacted_by")
+  respondedAt DateTime?            @map("responded_at") @db.Timestamptz(6)
+  ipAddress   String?              @map("ip_address") @db.VarChar(45)
+  userAgent   String?              @map("user_agent") @db.Text
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  contactedByAdmin Admin? @relation("ContactHandledBy", fields: [contactedBy], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([status])
+  @@index([contactedBy])
+  @@index([createdAt])
+  @@map("contact_messages")
+}
+
+enum ContactMessageStatus {
+  NEW
+  IN_PROGRESS
+  RESPONDED
+  CLOSED
+  SPAM
+
+  @@map("contact_message_status")
+}
+
+enum ContactPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+
+  @@map("contact_priority")
+}
+
+// ============================================================
+// BETA ACCESS LIST
+// ============================================================
+
+// Interim waitlist for beta program access. Tracks who applied,
+// whether they've been approved, and by which admin.
+model BetaAccessList {
+  id                   Int         @id @default(autoincrement())
+  fullName             String      @map("full_name") @db.Text
+  email                String      @unique @db.Text
+  companyName          String?     @map("company_name") @db.Text
+  numberOfUsersRange   String?     @map("number_of_users_range") @db.Text
+  source               String?     @db.Text
+  planInterest         ClientPlan? @map("plan_interest")
+  allowAccess          Boolean     @default(false) @map("allow_access")
+  approvedBy           Int?        @map("approved_by")
+  approvedAt           DateTime?   @map("approved_at") @db.Timestamptz(6)
+  notes                String?     @db.Text
+  createdAt            DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime    @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  approvedByAdmin Admin? @relation("BetaApprovedBy", fields: [approvedBy], references: [id], onDelete: SetNull)
+
+  @@index([email])
+  @@index([allowAccess])
+  @@index([approvedBy])
+  @@map("beta_access_list")
 }

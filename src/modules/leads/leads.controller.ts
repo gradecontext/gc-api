@@ -23,6 +23,7 @@ const createLeadSchema = z.object({
   company_size: z.string().optional(),
   company_website: z.string().optional(),
   plan_interest: z.enum(clientPlanValues).optional(),
+  source: z.string().optional(),
   message: z.string().optional(),
 });
 
@@ -32,6 +33,7 @@ const updateLeadSchema = z.object({
   company_size: z.string().optional(),
   company_website: z.string().optional(),
   plan_interest: z.enum(clientPlanValues).nullable().optional(),
+  source: z.string().optional(),
   message: z.string().optional(),
   contacted: z.boolean().optional(),
   status: z.enum(leadStatusValues).optional(),
