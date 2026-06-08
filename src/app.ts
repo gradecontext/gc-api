@@ -37,11 +37,13 @@ export function buildApp() {
     "*",
     cors({
       origin: (origin) => {
+        // Chrome extension service workers send chrome-extension://<id> as their origin
+        if (origin?.startsWith("chrome-extension://")) return origin;
         if (env.NODE_ENV !== "production") return origin;
         return ALLOWED_ORIGINS.includes(origin) ? origin : "";
       },
       allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
-      allowHeaders: ["Content-Type", "Authorization", "X-Requested-With", "X-API-Key"],
+      allowHeaders: ["Content-Type", "Authorization", "X-Requested-With", "X-API-Key", "X-Client-Id"],
       credentials: true,
       maxAge: 86400,
     }),

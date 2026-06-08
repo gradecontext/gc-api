@@ -127,13 +127,15 @@ model Client {
 
   addedByUser      User?        @relation("ClientAddedBy", fields: [addedBy], references: [id], onDelete: SetNull)
   modifiedByUser   User?        @relation("ClientModifiedBy", fields: [modifiedBy], references: [id], onDelete: SetNull)
-  memberships      Membership[]
-  subjectCompanies SubjectCompany[]
-  decisions        Decision[]
-  policies         Policy[]
-  decisionContexts DecisionContext[]
-  webhookEvents    WebhookEvent[]
-  convertedLeads   Lead[]     @relation("LeadConvertedClient")
+  memberships         Membership[]
+  subjectCompanies    SubjectCompany[]
+  decisions           Decision[]
+  policies            Policy[]
+  decisionContexts    DecisionContext[]
+  webhookEvents       WebhookEvent[]
+  convertedLeads      Lead[]             @relation("LeadConvertedClient")
+  observedEvents      ObservedEvent[]
+  sourceApplications  SourceApplication[]
 
   @@index([slug])
   @@index([addedBy])
@@ -180,6 +182,8 @@ model User {
   decisionOverrides DecisionHumanOverride[]
   decisionOutcomes  DecisionOutcome[]
   convertedLeads    Lead[]
+  observedEvents    ObservedEvent[]
+  decisionNotes     DecisionNote[]
 
   @@index([supabaseAuthId])
   @@map("users")
@@ -390,7 +394,7 @@ enum ContextCategory {
 }
 
 // ============================================================
-// DECISION SYSTEM (THIS IS YOUR MOAT)
+// DECISION SYSTEM (THIS IS MY MOAT)
 // ============================================================
 
 // Decisions are the atomic unit of truth — immutable events.
@@ -399,7 +403,7 @@ enum ContextCategory {
 model Decision {
   id                    String              @id @default(uuid()) @db.Uuid
   clientId              Int                 @map("client_id")
-  subjectCompanyId      Int                 @map("subject_company_id")
+  subjectCompanyId      Int?                @map("subject_company_id")
   dealId                String?             @map("deal_id") @db.Uuid
   contextId             String?             @map("context_id") @db.Uuid
   decisionType          DecisionType        @map("decision_type")
@@ -417,7 +421,7 @@ model Decision {
   decidedAt             DateTime?           @map("decided_at") @db.Timestamptz(6)
 
   client          Client                   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  subjectCompany  SubjectCompany           @relation(fields: [subjectCompanyId], references: [id])
+  subjectCompany  SubjectCompany?          @relation(fields: [subjectCompanyId], references: [id])
   deal            Deal?                    @relation(fields: [dealId], references: [id])
   context         DecisionContext?         @relation(fields: [contextId], references: [id])
   decisionMaker   User?                    @relation("DecisionMaker", fields: [decidedBy], references: [id])
@@ -427,6 +431,9 @@ model Decision {
   linksAsSource   DecisionLink[]           @relation("SourceDecision")
   linksAsTarget   DecisionLink[]           @relation("TargetDecision")
   externalSources ExternalSource[]
+  notes           DecisionNote[]
+  entities        DecisionEntity[]
+  observedEvents  ObservedEvent[]
 
   @@index([clientId])
   @@index([subjectCompanyId])
@@ -790,4 +797,101 @@ model BetaAccessList {
   @@index([allowAccess])
   @@index([approvedBy])
   @@map("beta_access_list")
+}
+
+// ============================================================
+// BROWSER EXTENSION LAYER
+// ============================================================
+
+// SourceApplication is the registry of apps the extension monitors.
+// Client-configurable so each team defines which tools to track.
+// e.g., "Jira", "Figma", "Salesforce", "HubSpot"
+model SourceApplication {
+  id            String   @id @default(uuid()) @db.Uuid
+  clientId      Int      @map("client_id")
+  name          String   @db.Text
+  slug          String   @db.VarChar(100)
+  domainPattern String?  @map("domain_pattern") @db.Text
+  active        Boolean  @default(true)
+  settings      Json?    @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client         Client          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  observedEvents ObservedEvent[]
+
+  @@unique([clientId, slug])
+  @@index([clientId])
+  @@map("source_applications")
+}
+
+// ObservedEvent is the pre-decision layer — raw browser activity captured by the extension.
+// Not every observed event becomes a formal decision; this is the signal stream.
+// "User closed Jira ticket" → ObservedEvent. "Team approved 30% discount" → Decision.
+model ObservedEvent {
+  id                    String   @id @default(uuid()) @db.Uuid
+  clientId              Int      @map("client_id")
+  sourceApp             String   @map("source_app") @db.Text
+  sourceApplicationId   String?  @map("source_application_id") @db.Uuid
+  eventType             String   @map("event_type") @db.Text
+  sourceUrl             String?  @map("source_url") @db.Text
+  externalEntityId      String?  @map("external_entity_id") @db.Text
+  title                 String?  @db.Text
+  description           String?  @db.Text
+  occurredByUserId      Int?     @map("occurred_by_user_id")
+  rawPayload            Json?    @map("raw_payload")
+  metadata              Json?    @default("{}")
+  convertedToDecisionId String?  @map("converted_to_decision_id") @db.Uuid
+  occurredAt            DateTime @map("occurred_at") @db.Timestamptz(6)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  client            Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  sourceApplication SourceApplication? @relation(fields: [sourceApplicationId], references: [id], onDelete: SetNull)
+  occurredBy        User?              @relation(fields: [occurredByUserId], references: [id], onDelete: SetNull)
+  decision          Decision?          @relation(fields: [convertedToDecisionId], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
+  @@index([sourceApp])
+  @@index([eventType])
+  @@index([occurredAt])
+  @@index([clientId, sourceApp])
+  @@index([convertedToDecisionId])
+  @@map("observed_events")
+}
+
+// DecisionNote is append-only commentary — informal human reasoning attached to a decision.
+// Captures the "customer was frustrated after the outage" context that never makes it into
+// formal approval fields.
+model DecisionNote {
+  id         String   @id @default(uuid()) @db.Uuid
+  decisionId String   @map("decision_id") @db.Uuid
+  authorId   Int?     @map("author_id")
+  content    String   @db.Text
+  sourceApp  String?  @map("source_app") @db.Text
+  sourceUrl  String?  @map("source_url") @db.Text
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  author   User?    @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([decisionId])
+  @@index([authorId])
+  @@map("decision_notes")
+}
+
+// DecisionEntity links a decision to any external artifact — Jira tickets, Figma files,
+// GitHub PRs, Salesforce opportunities — without requiring schema changes per integration.
+model DecisionEntity {
+  id         String   @id @default(uuid()) @db.Uuid
+  decisionId String   @map("decision_id") @db.Uuid
+  entityType String   @map("entity_type") @db.VarChar(100)
+  entityId   String   @map("entity_id") @db.Text
+  metadata   Json?    @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  decision Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@index([decisionId])
+  @@index([entityType, entityId])
+  @@map("decision_entities")
 }
