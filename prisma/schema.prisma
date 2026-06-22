@@ -134,8 +134,11 @@ model Client {
   decisionContexts    DecisionContext[]
   webhookEvents       WebhookEvent[]
   convertedLeads      Lead[]             @relation("LeadConvertedClient")
-  observedEvents      ObservedEvent[]
-  sourceApplications  SourceApplication[]
+  observedEvents          ObservedEvent[]
+  sourceApplications      SourceApplication[]
+  clientDecisionTypes     ClientDecisionType[]
+  clientContextCategories ClientContextCategory[]
+  aiDecisionReports       AIDecisionReport[]
 
   @@index([slug])
   @@index([addedBy])
@@ -179,11 +182,13 @@ model User {
   clientsAdded      Client[]                @relation("ClientAddedBy")
   clientsModified   Client[]                @relation("ClientModifiedBy")
   decisionsMade     Decision[]              @relation("DecisionMaker")
+  decisionsLogged   Decision[]              @relation("DecisionLogger")
   decisionOverrides DecisionHumanOverride[]
   decisionOutcomes  DecisionOutcome[]
   convertedLeads    Lead[]
   observedEvents    ObservedEvent[]
   decisionNotes     DecisionNote[]
+  aiReportsTriggered AIDecisionReport[]
 
   @@index([supabaseAuthId])
   @@map("users")
@@ -361,36 +366,23 @@ enum DealStage {
 // Long-term: contexts accumulate decision traces that can be exported
 // as skills.md knowledge files for foresight-driven decisions.
 model DecisionContext {
-  id          String          @id @default(uuid()) @db.Uuid
-  clientId    Int             @map("client_id")
+  id          String   @id @default(uuid()) @db.Uuid
+  clientId    Int      @map("client_id")
   key         String // Machine-friendly slug: "payment_onboarding"
   name        String // Human-friendly label: "Payment Onboarding"
-  description String?         @db.Text
-  category    ContextCategory @default(CUSTOM)
-  active      Boolean         @default(true)
-  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+  description String?  @db.Text
+  categoryId  String   @map("category_id") @db.Uuid
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  decisions Decision[]
+  client                Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientContextCategory ClientContextCategory @relation(fields: [categoryId], references: [id])
+  decisions             Decision[]
 
   @@unique([clientId, key])
   @@index([clientId])
   @@map("decision_contexts")
-}
-
-enum ContextCategory {
-  PAYMENT
-  ONBOARDING
-  HIRING
-  COMPLIANCE
-  ENGINEERING
-  SALES
-  PARTNERSHIP
-  SECURITY
-  CUSTOM
-
-  @@map("context_category")
 }
 
 // ============================================================
@@ -406,7 +398,7 @@ model Decision {
   subjectCompanyId      Int?                @map("subject_company_id")
   dealId                String?             @map("deal_id") @db.Uuid
   contextId             String?             @map("context_id") @db.Uuid
-  decisionType          DecisionType        @map("decision_type")
+  decisionTypeId        String              @map("decision_type_id") @db.Uuid
   status                DecisionStatus      @default(PROPOSED)
   urgency               DecisionUrgency     @default(NORMAL)
   summary               String?             // Human-readable title, e.g. "Acme Corp Discount Request"
@@ -415,16 +407,19 @@ model Decision {
   suggestedConditions   Json?               @map("suggested_conditions") // ["Require upfront payment", "Limit discount to 10%"]
   finalAction           String?             @map("final_action")
   decidedBy             Int?                @map("decided_by")
+  loggedBy              Int?                @map("logged_by") // who captured this decision (extension/API caller) — distinct from decidedBy (who reviewed it)
   expiresAt             DateTime?           @map("expires_at") @db.Timestamptz(6)
   createdAt             DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
   decidedAt             DateTime?           @map("decided_at") @db.Timestamptz(6)
 
-  client          Client                   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  subjectCompany  SubjectCompany?          @relation(fields: [subjectCompanyId], references: [id])
-  deal            Deal?                    @relation(fields: [dealId], references: [id])
-  context         DecisionContext?         @relation(fields: [contextId], references: [id])
-  decisionMaker   User?                    @relation("DecisionMaker", fields: [decidedBy], references: [id])
+  client             Client                   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientDecisionType ClientDecisionType       @relation(fields: [decisionTypeId], references: [id])
+  subjectCompany     SubjectCompany?          @relation(fields: [subjectCompanyId], references: [id])
+  deal               Deal?                    @relation(fields: [dealId], references: [id])
+  context            DecisionContext?         @relation(fields: [contextId], references: [id])
+  decisionMaker      User?                    @relation("DecisionMaker", fields: [decidedBy], references: [id])
+  loggedByUser       User?                    @relation("DecisionLogger", fields: [loggedBy], references: [id], onDelete: SetNull)
   contextSnapshot DecisionContextSnapshot?
   humanOverrides  DecisionHumanOverride[]
   outcomes        DecisionOutcome[]
@@ -438,23 +433,11 @@ model Decision {
   @@index([clientId])
   @@index([subjectCompanyId])
   @@index([clientId, status])
-  @@index([clientId, decisionType])
+  @@index([clientId, decisionTypeId])
   @@index([clientId, contextId])
+  @@index([clientId, loggedBy])
   @@index([createdAt])
   @@map("decisions")
-}
-
-enum DecisionType {
-  DISCOUNT
-  ONBOARDING
-  PAYMENT_TERMS
-  CREDIT_EXTENSION
-  PARTNERSHIP
-  RENEWAL
-  ESCALATION
-  CUSTOM
-
-  @@map("decision_type")
 }
 
 enum DecisionStatus {
@@ -894,4 +877,97 @@ model DecisionEntity {
   @@index([decisionId])
   @@index([entityType, entityId])
   @@map("decision_entities")
+}
+
+// ============================================================
+// AI DECISION REPORTS
+// ============================================================
+
+// AIDecisionReport is generated on-demand per client + context category.
+// It compiles all decisions in that category into a decision.md document
+// that can be fed into any AI tool as organisational context/memory.
+model AIDecisionReport {
+  id            String         @id @default(uuid()) @db.Uuid
+  clientId      Int            @map("client_id")
+  categoryId    String         @map("category_id") @db.Uuid
+  title         String?        @db.Text
+  content       String?        @db.Text // compiled decision.md markdown
+  status        AIReportStatus @default(PENDING)
+  decisionCount Int?           @map("decision_count")
+  agentModel    String?        @map("agent_model")
+  triggeredBy   Int?           @map("triggered_by")
+  generatedAt   DateTime?      @map("generated_at") @db.Timestamptz(6)
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client          Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  category        ClientContextCategory @relation(fields: [categoryId], references: [id])
+  triggeredByUser User?                 @relation(fields: [triggeredBy], references: [id], onDelete: SetNull)
+
+  @@index([clientId])
+  @@index([clientId, categoryId])
+  @@index([status])
+  @@map("ai_decision_reports")
+}
+
+enum AIReportStatus {
+  PENDING
+  GENERATING
+  COMPLETED
+  FAILED
+
+  @@map("ai_report_status")
+}
+
+// ============================================================
+// CLIENT-SCOPED DECISION TYPES
+// ============================================================
+
+// ClientDecisionType replaces the DecisionType enum.
+// Reserved types (DISCOUNT, ONBOARDING, etc.) are seeded automatically
+// via DB trigger on client creation. Clients can add custom types where
+// isReserved = false.
+model ClientDecisionType {
+  id           String   @id @default(uuid()) @db.Uuid
+  clientId     Int      @map("client_id")
+  decisionType String   @map("decision_type") @db.VarChar(100)
+  label        String?  @db.Text
+  isReserved   Boolean  @default(false) @map("is_reserved")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  decisions Decision[]
+
+  @@unique([clientId, decisionType])
+  @@index([clientId])
+  @@map("client_decision_types")
+}
+
+// ============================================================
+// CLIENT-SCOPED CONTEXT CATEGORIES
+// ============================================================
+
+// ClientContextCategory replaces the ContextCategory enum.
+// Reserved categories (PAYMENT, HIRING, etc.) are seeded automatically
+// via DB trigger on client creation. Clients can add custom categories
+// where isReserved = false.
+model ClientContextCategory {
+  id        String   @id @default(uuid()) @db.Uuid
+  clientId  Int      @map("client_id")
+  category  String   @db.VarChar(100)
+  label     String?  @db.Text
+  isReserved Boolean @default(false) @map("is_reserved")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client            Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  decisionContexts  DecisionContext[]
+  aiDecisionReports AIDecisionReport[]
+
+  @@unique([clientId, category])
+  @@index([clientId])
+  @@map("client_context_categories")
 }

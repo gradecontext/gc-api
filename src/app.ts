@@ -23,6 +23,8 @@ import { notificationsRoutes } from "./modules/notifications/notifications.route
 import { clientsRoutes } from "./modules/clients/clients.routes";
 import { contactRoutes } from "./modules/contact/contact.routes";
 import { betaAccessRoutes } from "./modules/beta-access/beta-access.routes";
+import { eventsRoutes } from "./modules/events/events.routes";
+import { aiReportsRoutes } from "./modules/ai-reports/ai-reports.routes";
 
 export function buildApp() {
   const app = new Hono();
@@ -88,6 +90,8 @@ export function buildApp() {
   app.route("/api/v1", clientsRoutes);
   app.route("/api/v1", contactRoutes);
   app.route("/api/v1", betaAccessRoutes);
+  app.route("/api/v1", eventsRoutes);
+  app.route("/api/v1", aiReportsRoutes);
 
   logger.info("Application configured", {
     environment: env.NODE_ENV,

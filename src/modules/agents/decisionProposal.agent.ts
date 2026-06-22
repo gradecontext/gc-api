@@ -14,7 +14,6 @@ import OpenAI from 'openai';
 import { env } from '../../config/env';
 import { logger } from '../../utils/logger';
 import { ContextSignals, extractDecisionFacts } from '../context/context.service';
-import { DecisionType } from '../decisions/decisions.types';
 
 export interface DecisionRecommendation {
   recommendation: 'approve' | 'approve_with_conditions' | 'reject' | 'review_manually';
@@ -36,7 +35,7 @@ export async function generateDecisionRecommendation(
     country?: string;
   },
   signals: ContextSignals,
-  decisionType: DecisionType,
+  decisionType: string,
   dealAmount?: number
 ): Promise<DecisionRecommendation> {
   logger.info('Generating AI decision recommendation', {
@@ -86,7 +85,7 @@ export async function generateDecisionRecommendation(
 async function generateWithOpenAI(
   companyInfo: { name: string; domain?: string; industry?: string; country?: string },
   facts: string[],
-  decisionType: DecisionType,
+  decisionType: string,
   dealAmount?: number
 ): Promise<DecisionRecommendation> {
   const openai = new OpenAI({

@@ -21,9 +21,9 @@ export async function listNotificationsHandler(c: Context) {
     const limit = Math.min(parseInt(c.req.query("limit") ?? "50", 10) || 50, 100);
     const offset = parseInt(c.req.query("offset") ?? "0", 10) || 0;
 
-    const result = await getUserNotifications(userId, { unreadOnly, limit, offset });
+    const { notifications, unread_count } = await getUserNotifications(userId, { unreadOnly, limit, offset });
 
-    return c.json({ success: true, data: result }, 200);
+    return c.json({ success: true, data: notifications, unread_count }, 200);
   } catch (error) {
     logger.error(
       "Error listing notifications",
