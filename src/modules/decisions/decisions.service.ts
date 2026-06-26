@@ -3,7 +3,7 @@ import {
   createDecision,
   findDecisionById,
   updateDecisionStatus,
-  findOrCreateSubjectCompany,
+  findActiveSubjectCompany,
   findOrCreateDeal,
   listDecisions as listDecisionsFromRepo,
   listDecisionContexts,
@@ -20,6 +20,11 @@ import {
   updateClientContextCategory,
   deleteClientContextCategory,
   findClientContextCategoryById,
+  listSubjectCompanies,
+  findSubjectCompanyById,
+  createSubjectCompany,
+  updateSubjectCompany,
+  deactivateSubjectCompany,
   DecisionCreateData,
   DecisionUpdateData,
 } from './decisions.repository';
@@ -34,6 +39,9 @@ import {
   UpdateDecisionTypeInput,
   CreateContextCategoryInput,
   UpdateContextCategoryInput,
+  SubjectCompanyItem,
+  CreateSubjectCompanyInput,
+  UpdateSubjectCompanyInput,
 } from './decisions.types';
 import { DecisionStatus } from '@prisma/client';
 
@@ -43,7 +51,7 @@ export async function processDecisionCreation(
 ): Promise<DecisionResponse> {
   logger.info('Processing decision creation', {
     clientId: input.client_id,
-    companyName: input.subject_company.name,
+    externalId: input.external_id,
     decisionType: input.decision_type,
   });
 
@@ -80,26 +88,21 @@ export async function processDecisionCreation(
     contextId = context.id;
   }
 
-  const derivedExternalId =
-    input.subject_company.external_id ||
-    input.subject_company.domain?.replace(/^https?:\/\//, '').replace(/\/$/, '') ||
-    input.subject_company.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-
-  const subjectCompany = await findOrCreateSubjectCompany(input.client_id, {
-    externalId: derivedExternalId,
-    name: input.subject_company.name,
-    domain: input.subject_company.domain,
-    industry: input.subject_company.industry,
-    country: input.subject_company.country,
-    metadata: input.subject_company.metadata,
-  });
+  // Lookup-only — decisions reference a pre-registered, active subject company
+  // (managed via /decisions/subject-companies). They never create one.
+  const subjectCompany = await findActiveSubjectCompany(input.client_id, input.external_id);
+  if (!subjectCompany) {
+    throw new Error(
+      `Subject company '${input.external_id}' not found or inactive for this client. Add it via /decisions/subject-companies first.`
+    );
+  }
 
   const deal = input.deal ? await findOrCreateDeal(subjectCompany.id, input.deal) : null;
 
   // Prefer caller-supplied summary; fall back to auto-generated one
   const summary =
     input.summary ||
-    `${input.subject_company.name} ${clientDecisionType.decisionType.replace(/_/g, ' ').toLowerCase()} request`;
+    `${subjectCompany.name} ${clientDecisionType.decisionType.replace(/_/g, ' ').toLowerCase()} request`;
 
   // No AI recommendation at log time — use POST /ai-reports/generate to trigger analysis
   const decisionData: DecisionCreateData = {
@@ -231,12 +234,17 @@ export async function addNoteToDecision(
   const existing = await findDecisionById(decisionId, clientId);
   if (!existing) throw new Error('Decision not found');
 
+  // Fall back to the originating note's source (e.g. the extension capture URL)
+  // so follow-up notes added without one (dashboard, API) keep that lineage
+  // instead of going NULL.
+  const originalNote = existing.notes[0];
+
   const note = await addDecisionNote({
     decisionId,
     authorId: userId,
     content: input.content,
-    sourceApp: input.source_app,
-    sourceUrl: input.source_url,
+    sourceApp: input.source_app ?? originalNote?.sourceApp ?? undefined,
+    sourceUrl: input.source_url ?? originalNote?.sourceUrl ?? undefined,
   });
 
   return {
@@ -247,6 +255,9 @@ export async function addNoteToDecision(
     source_app: note.sourceApp ?? undefined,
     source_url: note.sourceUrl ?? undefined,
     created_at: note.createdAt,
+    author: note.author
+      ? { id: note.author.id, name: note.author.name ?? undefined, email: note.author.email }
+      : undefined,
   };
 }
 
@@ -483,4 +494,84 @@ export async function removeContextCategory(id: string, clientId: number): Promi
   if (existing.isReserved) throw new Error('Cannot delete a reserved context category');
 
   await deleteClientContextCategory(id);
+}
+
+// ============================================================
+// SUBJECT COMPANY (SOURCE) SERVICE
+// ============================================================
+
+function deriveExternalId(input: { external_id?: string; domain?: string; name: string }): string {
+  return (
+    input.external_id ||
+    input.domain?.replace(/^https?:\/\//, '').replace(/\/$/, '') ||
+    input.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  );
+}
+
+function formatSubjectCompany(row: Awaited<ReturnType<typeof findSubjectCompanyById>>): SubjectCompanyItem {
+  if (!row) throw new Error('Subject company not found');
+  return {
+    id: row.id,
+    client_id: row.clientId,
+    external_id: row.externalId,
+    name: row.name,
+    domain: row.domain ?? undefined,
+    industry: row.industry ?? undefined,
+    country: row.country ?? undefined,
+    active: row.active,
+    metadata: row.metadata ?? undefined,
+    created_at: row.createdAt,
+    updated_at: row.updatedAt,
+  };
+}
+
+export async function getSubjectCompanies(clientId: number): Promise<SubjectCompanyItem[]> {
+  const rows = await listSubjectCompanies(clientId);
+  return rows.map((r) => ({
+    id: r.id,
+    client_id: r.clientId,
+    external_id: r.externalId,
+    name: r.name,
+    domain: r.domain ?? undefined,
+    industry: r.industry ?? undefined,
+    country: r.country ?? undefined,
+    active: r.active,
+    metadata: r.metadata ?? undefined,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  }));
+}
+
+export async function addSubjectCompany(
+  clientId: number,
+  input: CreateSubjectCompanyInput
+): Promise<SubjectCompanyItem> {
+  const row = await createSubjectCompany(clientId, {
+    externalId: deriveExternalId(input),
+    name: input.name,
+    domain: input.domain,
+    industry: input.industry,
+    country: input.country,
+    metadata: input.metadata,
+  });
+  return formatSubjectCompany(row);
+}
+
+export async function editSubjectCompany(
+  id: number,
+  clientId: number,
+  input: UpdateSubjectCompanyInput
+): Promise<SubjectCompanyItem> {
+  const existing = await findSubjectCompanyById(id, clientId);
+  if (!existing) throw new Error('Subject company not found');
+
+  const row = await updateSubjectCompany(id, input);
+  return formatSubjectCompany(row);
+}
+
+export async function removeSubjectCompany(id: number, clientId: number): Promise<void> {
+  const existing = await findSubjectCompanyById(id, clientId);
+  if (!existing) throw new Error('Subject company not found');
+
+  await deactivateSubjectCompany(id);
 }

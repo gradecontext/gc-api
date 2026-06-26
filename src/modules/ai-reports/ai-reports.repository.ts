@@ -45,6 +45,15 @@ export async function findReportById(id: string, clientId: number) {
   });
 }
 
+// Unscoped lookup for the public share link — the report's UUID is the only
+// credential, so callers must not also need client membership.
+export async function findReportByIdPublic(id: string) {
+  return await prisma.aIDecisionReport.findUnique({
+    where: { id },
+    include: { category: { select: { category: true, label: true } } },
+  });
+}
+
 export async function listReports(clientId: number, filters: {
   categoryId?: string;
   status?: AIReportStatus;

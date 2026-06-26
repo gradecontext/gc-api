@@ -14,6 +14,10 @@ import {
   createContextCategoryHandler,
   updateContextCategoryHandler,
   deleteContextCategoryHandler,
+  listSubjectCompaniesHandler,
+  createSubjectCompanyHandler,
+  updateSubjectCompanyHandler,
+  deleteSubjectCompanyHandler,
 } from "./decisions.controller";
 import { authenticate } from "../../middleware/auth.middleware";
 import { requireRole } from "../../middleware/role.middleware";
@@ -44,6 +48,13 @@ decisions.get("/decisions/context-categories", authenticate, listContextCategori
 decisions.post("/decisions/context-categories", authenticate, adminRoles, createContextCategoryHandler);
 decisions.put("/decisions/context-categories/:categoryId", authenticate, adminRoles, updateContextCategoryHandler);
 decisions.delete("/decisions/context-categories/:categoryId", authenticate, adminRoles, deleteContextCategoryHandler);
+
+// Subject Companies (Sources) — admin-curated domains the extension matches against
+// to decide where to show its icon. Same ordering constraint as above.
+decisions.get("/decisions/subject-companies", authenticate, listSubjectCompaniesHandler);
+decisions.post("/decisions/subject-companies", authenticate, adminRoles, createSubjectCompanyHandler);
+decisions.put("/decisions/subject-companies/:subjectCompanyId", authenticate, adminRoles, updateSubjectCompanyHandler);
+decisions.delete("/decisions/subject-companies/:subjectCompanyId", authenticate, adminRoles, deleteSubjectCompanyHandler);
 
 decisions.post("/decisions/:id/review", authenticate, reviewerRoles, reviewDecisionHandler);
 decisions.post("/decisions/:id/notes", authenticate, addDecisionNoteHandler);

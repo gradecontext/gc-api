@@ -16,18 +16,17 @@ import {
   addContextCategory,
   editContextCategory,
   removeContextCategory,
+  getSubjectCompanies,
+  addSubjectCompany,
+  editSubjectCompany,
+  removeSubjectCompany,
 } from "./decisions.service";
 
 const createDecisionSchema = z.object({
   client_id: z.number().int().positive().optional(),
-  subject_company: z.object({
-    external_id: z.string().min(1).optional(),
-    name: z.string().min(1),
-    domain: z.string().url().optional().or(z.string().min(1).optional()),
-    industry: z.string().optional(),
-    country: z.string().optional(),
-    metadata: z.record(z.unknown()).optional(),
-  }),
+  // References an existing subject company/source (e.g. "figma.com") registered
+  // via /decisions/subject-companies. Decision logging never creates one.
+  external_id: z.string().min(1),
   deal: z
     .object({
       crm_deal_id: z.string().optional(),
@@ -74,6 +73,29 @@ const updateContextCategorySchema = z.object({
   category: z.string().min(1).max(100).optional(),
   label: z.string().max(255).optional(),
   active: z.boolean().optional(),
+});
+
+const createSubjectCompanySchema = z
+  .object({
+    external_id: z.string().min(1).optional(),
+    name: z.string().min(1),
+    domain: z.string().min(1).optional(),
+    industry: z.string().optional(),
+    country: z.string().optional(),
+    metadata: z.record(z.unknown()).optional(),
+  })
+  .refine((data) => !!(data.external_id || data.domain), {
+    message: "Either external_id or domain is required",
+    path: ["domain"],
+  });
+
+const updateSubjectCompanySchema = z.object({
+  name: z.string().min(1).optional(),
+  domain: z.string().min(1).optional(),
+  industry: z.string().optional(),
+  country: z.string().optional(),
+  active: z.boolean().optional(),
+  metadata: z.record(z.unknown()).optional(),
 });
 
 function requireClientId(c: Context) {
@@ -178,8 +200,7 @@ export async function createDecisionHandler(c: Context) {
 
     logger.info("Decision creation request received", {
       clientId,
-      companyName: body.subject_company.name,
-      externalId: body.subject_company.external_id,
+      externalId: body.external_id,
     });
 
     const decision = await processDecisionCreation(
@@ -201,7 +222,12 @@ export async function createDecisionHandler(c: Context) {
     if (error instanceof Error && error.message === "Client account is inactive") {
       return c.json({ error: "Forbidden", message: "Client account is inactive" }, 403);
     }
-    if (error instanceof Error && (error.message.startsWith("Decision type '") || error.message.startsWith("Context '"))) {
+    if (
+      error instanceof Error &&
+      (error.message.startsWith("Decision type '") ||
+        error.message.startsWith("Context '") ||
+        error.message.startsWith("Subject company '"))
+    ) {
       return c.json({ error: "Bad Request", message: error.message }, 400);
     }
     logger.error("Error creating decision", error instanceof Error ? error : new Error(String(error)));
@@ -426,6 +452,89 @@ export async function deleteContextCategoryHandler(c: Context) {
       return c.json({ error: "Forbidden", message: "Cannot delete a reserved context category" }, 403);
     }
     logger.error("Error deleting context category", error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  }
+}
+
+// ============================================================
+// SUBJECT COMPANIES (SOURCES)
+// ============================================================
+
+export async function listSubjectCompaniesHandler(c: Context) {
+  try {
+    const clientId = requireClientId(c);
+    if (!clientId) {
+      return c.json({ error: "Bad Request", message: "Client context required." }, 400);
+    }
+
+    const companies = await getSubjectCompanies(clientId);
+    return c.json({ data: companies }, 200);
+  } catch (error) {
+    logger.error("Error listing subject companies", error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  }
+}
+
+export async function createSubjectCompanyHandler(c: Context) {
+  try {
+    const clientId = requireClientId(c);
+    if (!clientId) {
+      return c.json({ error: "Bad Request", message: "Client context required." }, 400);
+    }
+
+    const body = createSubjectCompanySchema.parse(await c.req.json());
+    const company = await addSubjectCompany(clientId, body);
+    return c.json(company, 201);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return c.json({ error: "Validation Error", message: "Invalid request body", details: error.errors }, 400);
+    }
+    if (error instanceof Error && error.message.includes("Unique constraint")) {
+      return c.json({ error: "Conflict", message: "A subject company with that external_id already exists for this client." }, 409);
+    }
+    logger.error("Error creating subject company", error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  }
+}
+
+export async function updateSubjectCompanyHandler(c: Context) {
+  try {
+    const clientId = requireClientId(c);
+    if (!clientId) {
+      return c.json({ error: "Bad Request", message: "Client context required." }, 400);
+    }
+
+    const id = parseInt(c.req.param("subjectCompanyId"), 10);
+    const body = updateSubjectCompanySchema.parse(await c.req.json());
+    const company = await editSubjectCompany(id, clientId, body);
+    return c.json(company, 200);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return c.json({ error: "Validation Error", message: "Invalid request body", details: error.errors }, 400);
+    }
+    if (error instanceof Error && error.message === "Subject company not found") {
+      return c.json({ error: "Not Found", message: "Subject company not found" }, 404);
+    }
+    logger.error("Error updating subject company", error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  }
+}
+
+export async function deleteSubjectCompanyHandler(c: Context) {
+  try {
+    const clientId = requireClientId(c);
+    if (!clientId) {
+      return c.json({ error: "Bad Request", message: "Client context required." }, 400);
+    }
+
+    const id = parseInt(c.req.param("subjectCompanyId"), 10);
+    await removeSubjectCompany(id, clientId);
+    return c.json({ success: true }, 200);
+  } catch (error) {
+    if (error instanceof Error && error.message === "Subject company not found") {
+      return c.json({ error: "Not Found", message: "Subject company not found" }, 404);
+    }
+    logger.error("Error deleting subject company", error instanceof Error ? error : new Error(String(error)));
     throw error;
   }
 }

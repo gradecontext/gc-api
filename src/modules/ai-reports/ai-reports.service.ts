@@ -6,6 +6,7 @@ import {
   createReport,
   updateReport,
   findReportById,
+  findReportByIdPublic,
   listReports,
   fetchDecisionsForCategory,
 } from './ai-reports.repository';
@@ -55,7 +56,7 @@ function compileDecisionMarkdown(
   const pending = total - approved - rejected - escalated;
 
   const lines: string[] = [
-    `# ${categoryLabel} — Decision Log`,
+    `# ${categoryLabel} — Context`,
     `**Organisation:** ${clientName}`,
     `**Category:** ${categoryLabel}`,
     `**Generated:** ${now}`,
@@ -194,7 +195,7 @@ export async function triggerReport(
       agentModel = enriched.model;
     }
 
-    const title = `${categoryLabel} — Decision Log (${new Date().toISOString().split('T')[0]})`;
+    const title = `${categoryLabel} — Context (${new Date().toISOString().split('T')[0]})`;
 
     await updateReport(report.id, {
       status: 'COMPLETED',
@@ -217,6 +218,15 @@ export async function triggerReport(
 export async function getReport(id: string, clientId: number): Promise<AIDecisionReportFull | null> {
   const row = await findReportById(id, clientId);
   return row ? toFull(row) : null;
+}
+
+// Public share-link lookup: the report id (a UUID) is the only credential, so this
+// intentionally skips client scoping. Only COMPLETED reports are exposed — anything
+// still GENERATING/FAILED/PENDING has no finished content worth sharing.
+export async function getPublicReport(id: string): Promise<AIDecisionReportFull | null> {
+  const row = await findReportByIdPublic(id);
+  if (!row || row.status !== 'COMPLETED') return null;
+  return toFull(row);
 }
 
 export async function getReports(

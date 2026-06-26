@@ -134,25 +134,25 @@ It runs in the browser and allows users to:
 * Attach rationale at the moment it exists — not retrospectively
 * Log raw browser context before a formal decision is made
 
-The extension identifies the subject via:
+Admins control where the extension activates. The extension is not shown on
+every webapp — only on domains an admin has explicitly registered as a
+**Subject Company / Source** (see below). On page load, the extension:
 
-1. `external_id` — if provided (e.g. a CRM deal ID)
-2. `domain` — stripped and used as a stable fallback (e.g. `figma.com`)
-3. `name` — slugified as a last resort (e.g. `welcome-to-figjam`)
+1. Fetches the client's source list via `GET /decisions/subject-companies`
+2. Matches the current tab's domain against the active entries
+3. If matched, shows its capture icon; if not, stays hidden
 
-This fallback chain means `external_id` is optional for extension use.
-B2B API integrations should always pass an explicit `external_id`.
+Clicking the icon opens the capture window, pre-filled with the matched
+source's `external_id` — the user never types a subject/domain by hand.
 
 ### Extension Payload Example
 
-The extension sends one request to `POST /decisions` with all fields:
+The extension sends one request to `POST /decisions`, referencing the matched
+source by `external_id` instead of describing a subject company inline:
 
 ```json
 {
-  "subject_company": {
-    "name": "Welcome to FigJam",
-    "domain": "figma.com"
-  },
+  "external_id": "figma.com",
   "decision_type": "CUSTOM",
   "summary": "Change the base color to navy",
   "note": {
@@ -167,16 +167,17 @@ Field mapping from the extension form:
 
 | Extension field | API field |
 |---|---|
+| Matched source (from `/decisions/subject-companies`) | `external_id` |
 | Source (e.g. Figma) | `note.source_app` |
 | Source URL | `note.source_url` |
-| Subject (page/entity name) | `subject_company.name` |
-| Domain | `subject_company.domain` |
 | Decision Type | `decision_type` |
 | Decision (what was decided) | `summary` |
 | Why | `note.content` |
 | Additional context | appended to `note.content` |
 
-**Important:** `subject_company` is the entity the decision is *about* (e.g. a Figma project, a deal, a ticket) — not the source application itself.
+**Important:** decision logging is lookup-only — it never creates a subject
+company. `external_id` must reference an existing, active row registered via
+`/decisions/subject-companies`; otherwise `POST /decisions` returns 400.
 
 ---
 
@@ -445,7 +446,7 @@ When a JWT user belongs to multiple clients, pass `X-Client-Id: <id>` to select 
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/decisions` | List decisions for a client |
-| POST | `/decisions` | Log a decision (no AI — raw capture only) |
+| POST | `/decisions` | Log a decision (no AI — raw capture only; `external_id` must reference an existing subject company) |
 | GET | `/decisions/:id` | Fetch a single decision with full context |
 | POST | `/decisions/:id/review` | Human review — approve / reject / escalate |
 | POST | `/decisions/:id/notes` | Append a reasoning note |
@@ -479,19 +480,33 @@ When a JWT user belongs to multiple clients, pass `X-Client-Id: <id>` to select 
 |--------|------|---------|
 | POST | `/events` | Log a raw observed event (extension pre-decision capture) |
 
+### Subject Companies / Sources (per-client)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/decisions/subject-companies` | List all subject companies (sources) for a client |
+| POST | `/decisions/subject-companies` | Register a new source (admin only) |
+| PUT | `/decisions/subject-companies/:subjectCompanyId` | Update a source (admin only) |
+| DELETE | `/decisions/subject-companies/:subjectCompanyId` | Deactivate a source (admin only — soft delete) |
+
 ## Subject Company Identity
 
-Every decision is anchored to a `SubjectCompany`.
+Every decision is anchored to a `SubjectCompany` — the entity the decision is
+*about* (e.g. a Figma project, a deal, a ticket), identified by a website
+domain in the common case (e.g. `figma.com`, `salesforce.com`, `bamboohr.com`).
 
-Companies are upserted by `(client_id, external_id)`.
+Subject companies are **admin-curated**, not auto-created. An admin registers
+each one via `POST /decisions/subject-companies` (`name` + `domain`, with
+`external_id` defaulting to the stripped domain if omitted). This same list
+is what the Chrome extension fetches to decide where it should show its icon.
 
-`external_id` is optional. When omitted, the backend derives a stable key:
+`POST /decisions` only ever performs a lookup by `(client_id, external_id)`
+against active subject companies — it never creates or upserts one. If
+`external_id` doesn't match an active row, the request fails with 400.
 
-1. Strip and use `domain` (e.g. `figma.com`)
-2. Slugify `name` as a fallback (e.g. `welcome-to-figjam`)
-
-B2B integrations should always pass an explicit `external_id` (e.g. CRM deal ID).
-The extension may omit it and rely on `domain`.
+Deleting a source (`DELETE /decisions/subject-companies/:id`) deactivates it
+(`active = false`) rather than removing the row — existing decisions keep
+their historical link, and the extension stops matching that domain going
+forward. Reactivate by `PUT`-ing `active: true`.
 
 ---
 

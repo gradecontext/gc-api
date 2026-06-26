@@ -156,9 +156,32 @@ export async function updateDecisionStatus(
   });
 }
 
-export async function findOrCreateSubjectCompany(
+export async function findActiveSubjectCompany(clientId: number, externalId: string) {
+  return await prisma.subjectCompany.findFirst({
+    where: { clientId, externalId, active: true },
+  });
+}
+
+// ============================================================
+// SUBJECT COMPANY (SOURCE) CRUD
+// Admin-curated list of trackable domains/companies. Decisions only
+// ever look these up by externalId — they never create them.
+// ============================================================
+
+export async function listSubjectCompanies(clientId: number) {
+  return await prisma.subjectCompany.findMany({
+    where: { clientId },
+    orderBy: [{ active: 'desc' }, { name: 'asc' }],
+  });
+}
+
+export async function findSubjectCompanyById(id: number, clientId: number) {
+  return await prisma.subjectCompany.findFirst({ where: { id, clientId } });
+}
+
+export async function createSubjectCompany(
   clientId: number,
-  companyData: {
+  data: {
     externalId: string;
     name: string;
     domain?: string;
@@ -167,32 +190,47 @@ export async function findOrCreateSubjectCompany(
     metadata?: unknown;
   }
 ) {
-  return await prisma.subjectCompany.upsert({
-    where: { clientId_externalId: { clientId, externalId: companyData.externalId } },
-    update: {
-      name: companyData.name,
-      domain: companyData.domain || undefined,
-      industry: companyData.industry || undefined,
-      country: companyData.country || undefined,
-      metadata: companyData.metadata ? (companyData.metadata as Prisma.InputJsonValue) : undefined,
-      active: true,
-    },
-    create: {
+  return await prisma.subjectCompany.create({
+    data: {
       clientId,
-      externalId: companyData.externalId,
-      name: companyData.name,
-      domain: companyData.domain || null,
-      industry: companyData.industry || null,
-      country: companyData.country || null,
-      metadata: companyData.metadata ? (companyData.metadata as Prisma.InputJsonValue) : undefined,
+      externalId: data.externalId,
+      name: data.name,
+      domain: data.domain || null,
+      industry: data.industry || null,
+      country: data.country || null,
+      metadata: data.metadata ? (data.metadata as Prisma.InputJsonValue) : undefined,
     },
   });
 }
 
-export async function findActiveSubjectCompany(clientId: number, externalId: string) {
-  return await prisma.subjectCompany.findFirst({
-    where: { clientId, externalId, active: true },
+export async function updateSubjectCompany(
+  id: number,
+  data: {
+    name?: string;
+    domain?: string;
+    industry?: string;
+    country?: string;
+    active?: boolean;
+    metadata?: unknown;
+  }
+) {
+  return await prisma.subjectCompany.update({
+    where: { id },
+    data: {
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.domain !== undefined && { domain: data.domain }),
+      ...(data.industry !== undefined && { industry: data.industry }),
+      ...(data.country !== undefined && { country: data.country }),
+      ...(data.active !== undefined && { active: data.active }),
+      ...(data.metadata !== undefined && { metadata: data.metadata as Prisma.InputJsonValue }),
+    },
   });
+}
+
+// Soft delete only — decisions reference subjectCompanyId, and history should
+// never be destroyed. Deactivating also removes it from extension domain matching.
+export async function deactivateSubjectCompany(id: number) {
+  return await prisma.subjectCompany.update({ where: { id }, data: { active: false } });
 }
 
 export async function findOrCreateDeal(
@@ -312,6 +350,9 @@ export async function addDecisionNote(data: {
       content: data.content,
       sourceApp: data.sourceApp ?? null,
       sourceUrl: data.sourceUrl ?? null,
+    },
+    include: {
+      author: { select: { id: true, name: true, email: true } },
     },
   });
 }

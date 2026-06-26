@@ -226,17 +226,7 @@ curl -X POST http://localhost:8080/api/v1/decisions \
   -H "Content-Type: application/json" \
   -d '{
     "client_id": 1,
-    "subject_company": {
-      "external_id": "crm-acme-corp-001",
-      "name": "Acme Corp",
-      "domain": "https://acmecorp.com",
-      "industry": "Financial Services",
-      "country": "USA",
-      "metadata": {
-        "source": "salesforce",
-        "tags": ["enterprise", "new-lead"]
-      }
-    },
+    "external_id": "crm-acme-corp-001",
     "deal": {
       "crm_deal_id": "sf-deal-98765",
       "amount": 50000,
@@ -248,17 +238,16 @@ curl -X POST http://localhost:8080/api/v1/decisions \
   }'
 ```
 
+`external_id` must already exist as an active subject company for this client
+— register it first via `POST /decisions/subject-companies` (`{ "external_id": "crm-acme-corp-001", "name": "Acme Corp", "domain": "https://acmecorp.com", ... }`).
+`POST /decisions` only looks the company up; it never creates one.
+
 **Request Body Fields:**
 
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `client_id` | integer | Yes | ContextGrade client (your organization) |
-| `subject_company.external_id` | string | Yes | Your CRM/system identifier for the company being evaluated |
-| `subject_company.name` | string | Yes | Company name |
-| `subject_company.domain` | string | No | Company website URL |
-| `subject_company.industry` | string | No | Industry vertical |
-| `subject_company.country` | string | No | Country code or name |
-| `subject_company.metadata` | object | No | Arbitrary extra data from your system |
+| `external_id` | string | Yes | References an existing subject company's `external_id` (see `/decisions/subject-companies`) |
 | `deal.crm_deal_id` | string | No | CRM deal identifier (Salesforce, HubSpot, etc.) |
 | `deal.amount` | number | No | Deal amount |
 | `deal.currency` | string | No | Currency code (defaults to USD) |

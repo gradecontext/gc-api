@@ -1,7 +1,7 @@
 import { Context } from 'hono';
 import { z } from 'zod';
 import { logger } from '../../utils/logger';
-import { triggerReport, getReport, getReports } from './ai-reports.service';
+import { triggerReport, getReport, getReports, getPublicReport } from './ai-reports.service';
 
 const triggerSchema = z.object({
   category_id: z.string().uuid(),
@@ -49,6 +49,24 @@ export async function listReportsHandler(c: Context) {
     return c.json({ data: reports }, 200);
   } catch (error) {
     logger.error('Error listing AI reports', error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  }
+}
+
+// Unauthenticated — the report id (UUID) is the share-link credential. Used by
+// public report pages (e.g. served to LLMs as a plain decision.md link).
+export async function getPublicReportHandler(c: Context) {
+  try {
+    const id = c.req.param('id');
+    const report = await getPublicReport(id);
+
+    if (!report) {
+      return c.json({ error: 'Not Found', message: 'Report not found' }, 404);
+    }
+
+    return c.json(report, 200);
+  } catch (error) {
+    logger.error('Error fetching public AI report', error instanceof Error ? error : new Error(String(error)));
     throw error;
   }
 }

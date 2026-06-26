@@ -8,14 +8,9 @@ export type { DecisionStatus, DecisionConfidence, DecisionUrgency };
 
 export interface CreateDecisionInput {
   client_id: number;
-  subject_company: {
-    external_id?: string;
-    name: string;
-    domain?: string;
-    industry?: string;
-    country?: string;
-    metadata?: Record<string, unknown>;
-  };
+  // References an existing SubjectCompany.externalId for this client (e.g. "figma.com").
+  // Decisions never create subject companies — see /decisions/subject-companies for that.
+  external_id: string;
   deal?: {
     crm_deal_id?: string;
     amount?: number;
@@ -101,6 +96,11 @@ export interface DecisionNoteResponse {
   source_app?: string;
   source_url?: string;
   created_at: Date;
+  author?: {
+    id: number;
+    name?: string;
+    email: string;
+  };
 }
 
 export interface DecisionResponse {
@@ -237,4 +237,38 @@ export interface UpdateContextCategoryInput {
   category?: string;
   label?: string;
   active?: boolean;
+}
+
+// ---- Subject Company (Source) management ----
+
+export interface SubjectCompanyItem {
+  id: number;
+  client_id: number;
+  external_id: string;
+  name: string;
+  domain?: string;
+  industry?: string;
+  country?: string;
+  active: boolean;
+  metadata?: unknown;
+  created_at: Date;
+  updated_at: Date;
+}
+
+export interface CreateSubjectCompanyInput {
+  external_id?: string; // derived from domain (then name) if omitted
+  name: string;
+  domain?: string;
+  industry?: string;
+  country?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateSubjectCompanyInput {
+  name?: string;
+  domain?: string;
+  industry?: string;
+  country?: string;
+  active?: boolean;
+  metadata?: Record<string, unknown>;
 }
