@@ -63,7 +63,7 @@ export async function createMembership(
     data: {
       userId: data.userId,
       clientId: data.clientId,
-      role: data.role ?? "VIEWER",
+      role: data.role ?? "STAFF",
       status: data.status ?? "PENDING",
     },
     select: membershipSelect,
@@ -128,7 +128,7 @@ export async function findMembershipsByUser(userId: number) {
 }
 
 /**
- * Find all ACTIVE admin/owner memberships for a client.
+ * Find all ACTIVE admin memberships for a client.
  * Used to determine who should receive notifications (e.g. membership requests).
  */
 export async function findActiveAdminsForClient(
@@ -140,7 +140,7 @@ export async function findActiveAdminsForClient(
     where: {
       clientId,
       status: "ACTIVE",
-      role: { in: ["OWNER", "ADMIN"] },
+      role: "ADMIN",
     },
     select: {
       id: true,

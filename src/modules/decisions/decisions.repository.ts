@@ -6,7 +6,7 @@ export interface DecisionCreateData {
   clientId: number;
   subjectCompanyId: number;
   dealId?: string;
-  contextId?: string;
+  contextCategoryId: string;
   decisionTypeId: string; // FK to client_decision_types
   summary?: string;
   loggedBy?: number; // who captured this decision (extension/API caller)
@@ -42,7 +42,7 @@ export async function createDecision(data: DecisionCreateData) {
       clientId: data.clientId,
       subjectCompanyId: data.subjectCompanyId,
       dealId: data.dealId,
-      contextId: data.contextId,
+      contextCategoryId: data.contextCategoryId,
       decisionTypeId: data.decisionTypeId,
       summary: data.summary,
       loggedBy: data.loggedBy,
@@ -66,7 +66,7 @@ export async function createDecision(data: DecisionCreateData) {
       contextSnapshot: true,
       subjectCompany: true,
       deal: true,
-      context: true,
+      contextCategory: { select: { category: true, label: true } },
       clientDecisionType: { select: { decisionType: true, label: true } },
     },
   });
@@ -82,9 +82,7 @@ export async function findDecisionById(decisionId: string, clientId?: number) {
       contextSnapshot: true,
       subjectCompany: true,
       deal: true,
-      context: {
-        include: { clientContextCategory: { select: { category: true } } },
-      },
+      contextCategory: { select: { category: true, label: true } },
       clientDecisionType: { select: { decisionType: true, label: true } },
       decisionMaker: {
         select: { id: true, name: true, title: true, email: true },
@@ -304,36 +302,6 @@ export async function listDecisions(params: {
   ]);
 
   return { decisions, total };
-}
-
-export async function findDecisionContextByKey(clientId: number, key: string) {
-  return await prisma.decisionContext.findUnique({
-    where: { clientId_key: { clientId, key } },
-  });
-}
-
-export async function listDecisionContexts(clientId: number) {
-  const contexts = await prisma.decisionContext.findMany({
-    where: { clientId, active: true },
-    orderBy: { name: 'asc' },
-    select: {
-      id: true,
-      key: true,
-      name: true,
-      description: true,
-      active: true,
-      clientContextCategory: { select: { category: true } },
-    },
-  });
-
-  return contexts.map((c) => ({
-    id: c.id,
-    key: c.key,
-    name: c.name,
-    description: c.description ?? undefined,
-    category: c.clientContextCategory.category,
-    active: c.active,
-  }));
 }
 
 export async function addDecisionNote(data: {

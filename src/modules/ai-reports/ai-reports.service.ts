@@ -71,11 +71,10 @@ function compileDecisionMarkdown(
     const decisionType = d.clientDecisionType?.label || d.clientDecisionType?.decisionType || 'CUSTOM';
     const subject = d.subjectCompany?.name ?? 'Unknown';
     const decidedBy = d.decisionMaker?.name ?? 'Not yet decided';
-    const context = d.context?.name ?? '—';
 
     lines.push(`## ${i + 1}. ${d.summary ?? 'Untitled decision'}`);
     lines.push(`**Date:** ${date} | **Type:** ${decisionType} | **Status:** ${d.status} | **Decided by:** ${decidedBy}`);
-    lines.push(`**Subject:** ${subject} | **Context:** ${context}`);
+    lines.push(`**Subject:** ${subject}`);
     lines.push('');
 
     if (d.notes.length > 0) {

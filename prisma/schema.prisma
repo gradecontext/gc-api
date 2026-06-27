@@ -131,7 +131,6 @@ model Client {
   subjectCompanies    SubjectCompany[]
   decisions           Decision[]
   policies            Policy[]
-  decisionContexts    DecisionContext[]
   webhookEvents       WebhookEvent[]
   convertedLeads      Lead[]             @relation("LeadConvertedClient")
   observedEvents          ObservedEvent[]
@@ -167,7 +166,7 @@ model User {
   active          Boolean  @default(true)
   verified        Boolean  @default(true)
   displayName     String?  @map("display_name") @db.VarChar(150)
-  userName        String?  @map("user_name") @db.VarChar(100)
+  userName        String?  @unique @map("user_name") @db.VarChar(100)
   imageUrl        String?  @map("image_url")
   userImage       String?  @map("user_image") @db.Text
   userImageCover  String?  @map("user_image_cover") @db.Text
@@ -195,10 +194,8 @@ model User {
 }
 
 enum UserRole {
-  OWNER
   ADMIN
-  APPROVER
-  VIEWER
+  STAFF
   @@map("user_role")
 }
 
@@ -207,13 +204,14 @@ enum UserRole {
 // ============================================================
 
 // Memberships link users to organizations and track per-org role and approval status.
-// First user to create a company gets ADMIN + ACTIVE; subsequent joiners are VIEWER + PENDING
-// until approved by an admin (or auto-approved via domain matching).
+// First user to create a company gets ADMIN + ACTIVE; subsequent joiners are STAFF + PENDING
+// until approved by an admin (or auto-approved via domain matching). Admins can later
+// promote a STAFF membership to ADMIN (or demote, as long as one ADMIN remains).
 model Membership {
   id        Int              @id @default(autoincrement())
   userId    Int              @map("user_id")
   clientId  Int              @map("client_id")
-  role      UserRole         @default(VIEWER)
+  role      UserRole         @default(STAFF)
   status    MembershipStatus @default(PENDING)
   createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -359,45 +357,19 @@ enum DealStage {
 // DECISION CONTEXT DOMAINS
 // ============================================================
 
-// DecisionContext categorizes the domain a decision belongs to.
-// Client-scoped so each customer defines their own contexts.
-// e.g., "payment_onboarding", "payment_renewal", "hiring", "coding_practices"
-//
-// Long-term: contexts accumulate decision traces that can be exported
-// as skills.md knowledge files for foresight-driven decisions.
-model DecisionContext {
-  id          String   @id @default(uuid()) @db.Uuid
-  clientId    Int      @map("client_id")
-  key         String // Machine-friendly slug: "payment_onboarding"
-  name        String // Human-friendly label: "Payment Onboarding"
-  description String?  @db.Text
-  categoryId  String   @map("category_id") @db.Uuid
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  client                Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  clientContextCategory ClientContextCategory @relation(fields: [categoryId], references: [id])
-  decisions             Decision[]
-
-  @@unique([clientId, key])
-  @@index([clientId])
-  @@map("decision_contexts")
-}
-
 // ============================================================
 // DECISION SYSTEM (THIS IS MY MOAT)
 // ============================================================
 
 // Decisions are the atomic unit of truth — immutable events.
 // Every decision is anchored to a client, a subject company,
-// and optionally a deal and context domain.
+// a decision type, and a context category (the domain it belongs to).
 model Decision {
   id                    String              @id @default(uuid()) @db.Uuid
   clientId              Int                 @map("client_id")
   subjectCompanyId      Int?                @map("subject_company_id")
   dealId                String?             @map("deal_id") @db.Uuid
-  contextId             String?             @map("context_id") @db.Uuid
+  contextCategoryId     String              @map("context_category_id") @db.Uuid
   decisionTypeId        String              @map("decision_type_id") @db.Uuid
   status                DecisionStatus      @default(PROPOSED)
   urgency               DecisionUrgency     @default(NORMAL)
@@ -417,7 +389,7 @@ model Decision {
   clientDecisionType ClientDecisionType       @relation(fields: [decisionTypeId], references: [id])
   subjectCompany     SubjectCompany?          @relation(fields: [subjectCompanyId], references: [id])
   deal               Deal?                    @relation(fields: [dealId], references: [id])
-  context            DecisionContext?         @relation(fields: [contextId], references: [id])
+  contextCategory    ClientContextCategory    @relation(fields: [contextCategoryId], references: [id])
   decisionMaker      User?                    @relation("DecisionMaker", fields: [decidedBy], references: [id])
   loggedByUser       User?                    @relation("DecisionLogger", fields: [loggedBy], references: [id], onDelete: SetNull)
   contextSnapshot DecisionContextSnapshot?
@@ -434,7 +406,7 @@ model Decision {
   @@index([subjectCompanyId])
   @@index([clientId, status])
   @@index([clientId, decisionTypeId])
-  @@index([clientId, contextId])
+  @@index([clientId, contextCategoryId])
   @@index([clientId, loggedBy])
   @@index([createdAt])
   @@map("decisions")
@@ -964,7 +936,7 @@ model ClientContextCategory {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   client            Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  decisionContexts  DecisionContext[]
+  decisions         Decision[]
   aiDecisionReports AIDecisionReport[]
 
   @@unique([clientId, category])

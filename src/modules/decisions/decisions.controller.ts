@@ -6,7 +6,6 @@ import {
   processDecisionReview,
   getDecisionById,
   listDecisions,
-  getDecisionContexts,
   addNoteToDecision,
   getDecisionTypes,
   addDecisionType,
@@ -36,7 +35,7 @@ const createDecisionSchema = z.object({
     })
     .optional(),
   decision_type: z.string().min(1), // validated against client's ClientDecisionType table
-  context_key: z.string().optional(),
+  context_category: z.string().min(1), // validated against client's ClientContextCategory table
   summary: z.string().min(1).optional(),
   note: z
     .object({
@@ -142,22 +141,6 @@ export async function listDecisionsHandler(c: Context) {
   }
 }
 
-export async function listDecisionContextsHandler(c: Context) {
-  try {
-    const clientId = requireClientId(c);
-    if (!clientId) {
-      return c.json({ error: "Bad Request", message: "Client context required. Pass X-Client-Id header or ensure your account has exactly one active membership." }, 400);
-    }
-
-    const contexts = await getDecisionContexts(clientId);
-
-    return c.json({ data: contexts }, 200);
-  } catch (error) {
-    logger.error("Error listing decision contexts", error instanceof Error ? error : new Error(String(error)));
-    throw error;
-  }
-}
-
 export async function addDecisionNoteHandler(c: Context) {
   try {
     const decisionId = c.req.param("id");
@@ -225,7 +208,7 @@ export async function createDecisionHandler(c: Context) {
     if (
       error instanceof Error &&
       (error.message.startsWith("Decision type '") ||
-        error.message.startsWith("Context '") ||
+        error.message.startsWith("Context category '") ||
         error.message.startsWith("Subject company '"))
     ) {
       return c.json({ error: "Bad Request", message: error.message }, 400);

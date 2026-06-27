@@ -154,6 +154,7 @@ source by `external_id` instead of describing a subject company inline:
 {
   "external_id": "figma.com",
   "decision_type": "CUSTOM",
+  "context_category": "ENGINEERING",
   "summary": "Change the base color to navy",
   "note": {
     "content": "Change the base color to navy.\n\nWhy: Because navy is the project theme color.\n\nContext: Agreed during design review.",
@@ -170,10 +171,16 @@ Field mapping from the extension form:
 | Matched source (from `/decisions/subject-companies`) | `external_id` |
 | Source (e.g. Figma) | `note.source_app` |
 | Source URL | `note.source_url` |
-| Decision Type | `decision_type` |
+| Decision Type (dropdown, from `/decisions/types`) | `decision_type` |
+| Context Category (dropdown, from `/decisions/context-categories`) | `context_category` |
 | Decision (what was decided) | `summary` |
 | Why | `note.content` |
 | Additional context | appended to `note.content` |
+
+`decision_type` and `context_category` are both required, independent classifications —
+resolved by value against the client's `client_decision_types` / `client_context_categories`
+tables. Picking one does not constrain or default the other (e.g. a `DISCOUNT` decision can
+land under `SALES`, `PAYMENT`, or any other category).
 
 **Important:** decision logging is lookup-only — it never creates a subject
 company. `external_id` must reference an existing, active row registered via
@@ -250,22 +257,6 @@ Reserved types cannot be modified or deleted.
 
 ---
 
-## Decision Context
-
-A category of reasoning.
-
-Examples:
-
-* Payment onboarding
-* Pricing
-* Security review
-* Engineering
-* Design
-
-Contexts accumulate organizational knowledge.
-
----
-
 ## Client Context Categories
 
 `ContextCategory` is no longer a shared enum — it is a per-client table (`client_context_categories`).
@@ -278,6 +269,16 @@ Client admins can add unlimited custom categories where `is_reserved = false`.
 Reserved categories cannot be modified or deleted.
 
 A DB trigger (`trg_client_seed_default_types`) on `INSERT INTO clients` seeds both tables automatically for every new client.
+
+Every decision references a context category directly (`decisions.context_category_id`,
+required, FK to `client_context_categories`) — this is what AI Decision Reports group by.
+There used to be an intermediate `DecisionContext` "topic" table (e.g. a named topic like
+`payment_onboarding` sitting under the `PAYMENT` category), but it had no admin-facing way
+to create topics and made `context` optional on a decision, which meant decisions logged
+without one were silently excluded from every report. That layer was removed — `decision_type`
+and `context_category` are now two independent, required, flat classifications on every
+decision, resolved the same way (human-readable value → per-client FK lookup), with no
+decision ever missing a category.
 
 ---
 
@@ -446,11 +447,10 @@ When a JWT user belongs to multiple clients, pass `X-Client-Id: <id>` to select 
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/decisions` | List decisions for a client |
-| POST | `/decisions` | Log a decision (no AI — raw capture only; `external_id` must reference an existing subject company) |
+| POST | `/decisions` | Log a decision (no AI — raw capture only; `external_id` must reference an existing subject company; `decision_type` and `context_category` are both required) |
 | GET | `/decisions/:id` | Fetch a single decision with full context |
 | POST | `/decisions/:id/review` | Human review — approve / reject / escalate |
 | POST | `/decisions/:id/notes` | Append a reasoning note |
-| GET | `/decisions/contexts` | List decision contexts for a client |
 
 ### Decision Types (per-client)
 | Method | Path | Purpose |

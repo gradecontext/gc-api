@@ -75,13 +75,12 @@ export async function fetchDecisionsForCategory(clientId: number, categoryId: st
   return await prisma.decision.findMany({
     where: {
       clientId,
-      context: { categoryId },
+      contextCategoryId: categoryId,
     },
     orderBy: { createdAt: 'asc' },
     include: {
       clientDecisionType: { select: { decisionType: true, label: true } },
       subjectCompany: { select: { name: true, domain: true, industry: true, country: true } },
-      context: { select: { key: true, name: true } },
       notes: { orderBy: { createdAt: 'asc' } },
       humanOverrides: {
         include: { user: { select: { name: true } } },

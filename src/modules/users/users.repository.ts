@@ -75,6 +75,13 @@ const userWithMembershipsSelect = {
           slug: true,
           domain: true,
           logo: true,
+          coverImage: true,
+          details: true,
+          clientWebsite: true,
+          clientX: true,
+          clientLinkedin: true,
+          clientInstagram: true,
+          verified: true,
           plan: true,
           active: true,
         },
@@ -144,6 +151,20 @@ export async function findUserByEmail(
   return await db.user.findUnique({
     where: { email },
     select: userWithMembershipsSelect,
+  });
+}
+
+/**
+ * Find user by username (for uniqueness checks)
+ */
+export async function findUserByUserName(
+  userName: string,
+  tx?: Prisma.TransactionClient,
+) {
+  const db = tx ?? prisma;
+  return await db.user.findUnique({
+    where: { userName },
+    select: { id: true },
   });
 }
 

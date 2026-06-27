@@ -8,14 +8,15 @@
  *   User signs up → creates Client → Membership(ADMIN, ACTIVE)
  *
  * Case B — Existing company:
- *   User signs up → Membership(VIEWER, PENDING)
+ *   User signs up → Membership(STAFF, PENDING)
  *   Unless email domain matches client domain (and is not a public provider),
- *   in which case auto-approve → Membership(VIEWER, ACTIVE)
+ *   in which case auto-approve → Membership(STAFF, ACTIVE)
  *
  * Case C — Returning user joining another org:
  *   User already exists → create additional Membership (same rules as B)
  */
 
+import { Prisma } from "@prisma/client";
 import { logger } from "../../utils/logger";
 import { prisma } from "../../db/client";
 import {
@@ -23,6 +24,7 @@ import {
   findUserBySupabaseId,
   findUserByEmail,
   findUserById,
+  findUserByUserName,
   updateUser,
   UserCreateData,
   UserUpdateData,
@@ -43,6 +45,7 @@ import {
   extractDomainFromEmail,
   isPublicEmailDomain,
   formatClientResponse,
+  generateRandomKey,
 } from "../clients/clients.service";
 import { ClientResponse } from "../clients/clients.types";
 import {
@@ -55,6 +58,38 @@ export interface CreateUserResult {
   user: UserResponse;
   created: boolean;
   membership_status: string;
+}
+
+/**
+ * Resolve the username to persist for a newly created user.
+ *
+ * If the caller requested a specific username, it's used as-is (after
+ * confirming it's free). Otherwise one is derived from the email's local
+ * part, appending a random suffix on collision until a free one is found.
+ */
+async function resolveUserNameForCreate(
+  requested: string | undefined,
+  email: string,
+  tx: Prisma.TransactionClient,
+): Promise<string> {
+  if (requested) {
+    const taken = await findUserByUserName(requested, tx);
+    if (taken) throw new Error("Username is already taken");
+    return requested;
+  }
+
+  const base =
+    email
+      .split("@")[0]
+      .toLowerCase()
+      .replace(/[^a-z0-9_]/g, "")
+      .slice(0, 90) || "user";
+
+  let candidate = base;
+  while (await findUserByUserName(candidate, tx)) {
+    candidate = `${base}${generateRandomKey(4).toLowerCase()}`;
+  }
+  return candidate;
 }
 
 /**
@@ -106,13 +141,19 @@ export async function createVerifiedUser(
       if (existingByEmail) {
         user = existingByEmail;
       } else {
+        const userName = await resolveUserNameForCreate(
+          input.user_name,
+          trustedEmail,
+          tx,
+        );
+
         const userData: UserCreateData = {
           supabaseAuthId,
           email: trustedEmail,
           name: input.name,
           title: input.title,
           displayName: input.display_name,
-          userName: input.user_name,
+          userName,
           imageUrl: input.image_url,
           userImage: input.user_image,
           userImageCover: input.user_image_cover,
@@ -192,7 +233,7 @@ export async function createVerifiedUser(
     }
 
     // --- Determine membership role & status ---
-    let membershipRole: "OWNER" | "ADMIN" | "APPROVER" | "VIEWER";
+    let membershipRole: "ADMIN" | "STAFF";
     let membershipStatus: "PENDING" | "ACTIVE";
 
     if (isNewClient) {
@@ -200,8 +241,8 @@ export async function createVerifiedUser(
       membershipRole = "ADMIN";
       membershipStatus = "ACTIVE";
     } else {
-      // Joining an existing company
-      membershipRole = "VIEWER";
+      // Joining an existing company → STAFF (admins can promote later)
+      membershipRole = "STAFF";
 
       // Auto-approve if email domain matches client domain (and is not a public provider)
       const userDomain = extractDomainFromEmail(trustedEmail);
@@ -291,14 +332,20 @@ export async function createVerifiedUser(
 }
 
 /**
- * Get the current user's profile from their Supabase auth ID
+ * Get the current user's profile from their Supabase auth ID.
+ *
+ * `requestedClientId` lets a multi-company user pin which membership's
+ * client should be surfaced as the top-level `client` field (e.g. via an
+ * X-Client-Id header). If omitted, it's auto-selected only when the user
+ * has exactly one ACTIVE membership.
  */
 export async function getUserBySupabaseId(
   supabaseAuthId: string,
+  requestedClientId: number | null = null,
 ): Promise<UserResponse | null> {
   const user = await findUserBySupabaseId(supabaseAuthId);
   if (!user) return null;
-  return formatUserResponse(user);
+  return formatUserResponse(user, requestedClientId);
 }
 
 /**
@@ -326,6 +373,11 @@ export async function updateUserProfile(
     throw new Error("Not authorized to update this user");
   }
 
+  if (input.user_name && input.user_name !== existing.userName) {
+    const taken = await findUserByUserName(input.user_name);
+    if (taken) throw new Error("Username is already taken");
+  }
+
   const updateData: UserUpdateData = {
     name: input.name,
     title: input.title,
@@ -345,11 +397,17 @@ export async function updateUserProfile(
 }
 
 /**
- * Format database user to API response
+ * Format database user to API response.
+ *
+ * `requestedClientId` resolves which membership's client gets surfaced as
+ * the top-level `client` field — see resolveCurrentClient.
  */
 function formatUserResponse(
   user: NonNullable<Awaited<ReturnType<typeof findUserBySupabaseId>>>,
+  requestedClientId: number | null = null,
 ): UserResponse {
+  const memberships = (user.memberships ?? []).map(formatMembershipResponse);
+
   return {
     id: user.id,
     supabase_auth_id: user.supabaseAuthId,
@@ -368,7 +426,8 @@ function formatUserResponse(
     gender: user.gender,
     created_at: user.createdAt,
     updated_at: user.updatedAt,
-    memberships: (user.memberships ?? []).map(formatMembershipResponse),
+    memberships,
+    client: resolveCurrentClient(memberships, requestedClientId),
   };
 }
 
@@ -389,9 +448,42 @@ function formatMembershipResponse(
           slug: m.client.slug,
           domain: m.client.domain,
           logo: m.client.logo,
+          cover_image: m.client.coverImage,
+          details: m.client.details,
+          client_website: m.client.clientWebsite,
+          client_x: m.client.clientX,
+          client_linkedin: m.client.clientLinkedin,
+          client_instagram: m.client.clientInstagram,
+          verified: m.client.verified,
           plan: m.client.plan,
           active: m.client.active,
         }
       : undefined,
   };
+}
+
+/**
+ * Resolve which membership's client should be surfaced as the user's
+ * "current" company — same priority as the auth middleware's clientId
+ * resolution (X-Client-Id header, else the sole ACTIVE membership):
+ *
+ * 1. requestedClientId, if it matches an ACTIVE membership
+ * 2. The user's only ACTIVE membership, if they have exactly one
+ * 3. Otherwise undefined (ambiguous — caller should rely on `memberships`)
+ */
+function resolveCurrentClient(
+  memberships: MembershipResponse[],
+  requestedClientId: number | null,
+): MembershipResponse["client"] {
+  const activeMemberships = memberships.filter((m) => m.status === "ACTIVE");
+
+  if (requestedClientId) {
+    return activeMemberships.find((m) => m.client_id === requestedClientId)?.client;
+  }
+
+  if (activeMemberships.length === 1) {
+    return activeMemberships[0].client;
+  }
+
+  return undefined;
 }

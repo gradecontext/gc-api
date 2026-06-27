@@ -6,8 +6,6 @@ import {
   findActiveSubjectCompany,
   findOrCreateDeal,
   listDecisions as listDecisionsFromRepo,
-  listDecisionContexts,
-  findDecisionContextByKey,
   addDecisionNote,
   findClientDecisionTypeByValue,
   listClientDecisionTypes,
@@ -15,6 +13,7 @@ import {
   updateClientDecisionType,
   deleteClientDecisionType,
   findClientDecisionTypeById,
+  findClientContextCategoryByValue,
   listClientContextCategories,
   createClientContextCategory,
   updateClientContextCategory,
@@ -75,17 +74,14 @@ export async function processDecisionCreation(
     throw new Error(`Decision type '${input.decision_type}' is inactive`);
   }
 
-  // Resolve context_key string → DecisionContext FK (drives AI report category scoping)
-  let contextId: string | undefined;
-  if (input.context_key) {
-    const context = await findDecisionContextByKey(input.client_id, input.context_key);
-    if (!context) {
-      throw new Error(`Context '${input.context_key}' not found for this client`);
-    }
-    if (!context.active) {
-      throw new Error(`Context '${input.context_key}' is inactive`);
-    }
-    contextId = context.id;
+  // Resolve context_category string → ClientContextCategory FK (drives AI report scoping).
+  // Required — every decision must have a category so it's never invisible to report generation.
+  const contextCategory = await findClientContextCategoryByValue(input.client_id, input.context_category);
+  if (!contextCategory) {
+    throw new Error(`Context category '${input.context_category}' not found for this client`);
+  }
+  if (!contextCategory.active) {
+    throw new Error(`Context category '${input.context_category}' is inactive`);
   }
 
   // Lookup-only — decisions reference a pre-registered, active subject company
@@ -109,7 +105,7 @@ export async function processDecisionCreation(
     clientId: input.client_id,
     subjectCompanyId: subjectCompany.id,
     dealId: deal?.id,
-    contextId,
+    contextCategoryId: contextCategory.id,
     decisionTypeId: clientDecisionType.id,
     summary,
     loggedBy,
@@ -221,10 +217,6 @@ export async function listDecisions(params: {
   return { data, total, page: params.page, limit: params.limit };
 }
 
-export async function getDecisionContexts(clientId: number) {
-  return await listDecisionContexts(clientId);
-}
-
 export async function addNoteToDecision(
   decisionId: string,
   userId: number | undefined,
@@ -292,7 +284,7 @@ function formatDecisionResponse(
     client_id: decision.clientId,
     subject_company_id: decision.subjectCompanyId!,
     deal_id: decision.dealId || undefined,
-    context_key: decision.context?.key || undefined,
+    context_category: decision.contextCategory?.category ?? '',
     decision_type: decision.clientDecisionType?.decisionType ?? '',
     status: decision.status,
     urgency: decision.urgency,

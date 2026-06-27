@@ -4,9 +4,30 @@
  */
 
 import { Gender, UserRole, MembershipStatus, ClientPlan } from '@prisma/client';
-import { ClientInputForUser, ClientResponse } from '../clients/clients.types';
+import { ClientInputForUser } from '../clients/clients.types';
 
 export type { Gender, UserRole, MembershipStatus };
+
+/**
+ * Non-sensitive client fields safe to return on user-facing profile
+ * endpoints. Deliberately excludes api_key / webhook_secret.
+ */
+export interface ClientSummary {
+  id: number;
+  name: string;
+  slug: string;
+  domain: string | null;
+  logo: string | null;
+  cover_image: string | null;
+  details: string | null;
+  client_website: string | null;
+  client_x: string | null;
+  client_linkedin: string | null;
+  client_instagram: string | null;
+  verified: boolean;
+  plan: ClientPlan;
+  active: boolean;
+}
 
 /**
  * POST /users request body.
@@ -48,15 +69,7 @@ export interface MembershipResponse {
   status: MembershipStatus;
   created_at: Date;
   updated_at: Date;
-  client?: {
-    id: number;
-    name: string;
-    slug: string;
-    domain: string | null;
-    logo: string | null;
-    plan: ClientPlan;
-    active: boolean;
-  };
+  client?: ClientSummary;
 }
 
 export interface UserResponse {
@@ -78,5 +91,6 @@ export interface UserResponse {
   created_at: Date;
   updated_at: Date;
   memberships: MembershipResponse[];
-  client?: ClientResponse;
+  /** The user's currently resolved company (see resolveCurrentClient in users.service.ts). */
+  client?: ClientSummary;
 }

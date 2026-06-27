@@ -15,7 +15,7 @@ import {
   listUserMemberships,
 } from "./memberships.service";
 
-const roleValues = ["OWNER", "ADMIN", "APPROVER", "VIEWER"] as const;
+const roleValues = ["ADMIN", "STAFF"] as const;
 const statusFilter = ["PENDING", "ACTIVE", "REJECTED"] as const;
 
 /**

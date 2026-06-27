@@ -150,6 +150,7 @@ export async function createUserHandler(c: Context) {
         "You already have a membership for this organization": 409,
         "Email does not match Supabase account. Use the email associated with your authentication.": 400,
         "Company data missing. Either client_id or client_name is required.": 400,
+        "Username is already taken": 409,
       };
 
       const statusCode = errorMap[error.message];
@@ -186,7 +187,15 @@ export async function getMeHandler(c: Context) {
       return c.json({ error: "Unauthorized", message: "Valid session is required" }, 401);
     }
 
-    const user = await getUserBySupabaseId(supabaseUserId);
+    // Optional explicit company selection for multi-company users — mirrors
+    // the X-Client-Id header handled by the `authenticate` middleware.
+    const clientIdHeader = c.req.header("x-client-id");
+    const requestedClientId = clientIdHeader ? parseInt(clientIdHeader, 10) : null;
+
+    const user = await getUserBySupabaseId(
+      supabaseUserId,
+      requestedClientId && !isNaN(requestedClientId) ? requestedClientId : null,
+    );
 
     if (!user) {
       return c.json(
@@ -266,6 +275,9 @@ export async function updateUserHandler(c: Context) {
       }
       if (error.message === "Not authorized to update this user") {
         return c.json({ error: "Forbidden", message: error.message }, 403);
+      }
+      if (error.message === "Username is already taken") {
+        return c.json({ error: "Conflict", message: error.message }, 409);
       }
     }
 

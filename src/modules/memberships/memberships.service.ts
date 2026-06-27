@@ -2,7 +2,7 @@
  * Memberships Service
  * Business logic for membership approval, role changes, and listing.
  *
- * Key rule: only ACTIVE ADMIN/OWNER members of a client can approve, reject,
+ * Key rule: only ACTIVE ADMIN members of a client can approve, reject,
  * or change roles of other memberships within that client.
  */
 
@@ -23,7 +23,7 @@ import { MembershipStatus, UserRole } from "@prisma/client";
 
 /**
  * Approve a pending membership.
- * Only callable by an ACTIVE ADMIN/OWNER of the same client.
+ * Only callable by an ACTIVE ADMIN of the same client.
  */
 export async function approveMembership(
   membershipId: number,
@@ -116,15 +116,13 @@ export async function changeMembershipRole(
   await assertCallerIsAdmin(actingUserId, membership.clientId);
 
   // Prevent demoting the last admin
-  if (membership.role === "ADMIN" || membership.role === "OWNER") {
-    if (newRole !== "ADMIN" && newRole !== "OWNER") {
-      const admins = await findMembershipsByClient(membership.clientId, "ACTIVE");
-      const adminCount = admins.filter(
-        (m) => (m.role === "ADMIN" || m.role === "OWNER") && m.id !== membershipId,
-      ).length;
-      if (adminCount === 0) {
-        throw new Error("Cannot demote the last admin of this organization");
-      }
+  if (membership.role === "ADMIN" && newRole !== "ADMIN") {
+    const admins = await findMembershipsByClient(membership.clientId, "ACTIVE");
+    const adminCount = admins.filter(
+      (m) => m.role === "ADMIN" && m.id !== membershipId,
+    ).length;
+    if (adminCount === 0) {
+      throw new Error("Cannot demote the last admin of this organization");
     }
   }
 
@@ -196,7 +194,7 @@ async function assertCallerIsAdmin(
   if (callerMembership.status !== "ACTIVE") {
     throw new Error("Your membership is not active");
   }
-  if (callerMembership.role !== "ADMIN" && callerMembership.role !== "OWNER") {
+  if (callerMembership.role !== "ADMIN") {
     throw new Error("Only admins can perform this action");
   }
 }

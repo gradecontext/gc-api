@@ -18,7 +18,7 @@ export interface CreateDecisionInput {
     discount_requested?: number;
   };
   decision_type: string; // value from ClientDecisionType.decisionType
-  context_key?: string;
+  context_category: string; // value from ClientContextCategory.category
   summary?: string;      // human-written title (e.g. "Change base color to navy")
   note?: {              // optional inline note — saved after decision creation
     content: string;
@@ -73,15 +73,6 @@ export interface DecisionSummary {
   };
 }
 
-export interface DecisionContextItem {
-  id: string;
-  key: string;
-  name: string;
-  description?: string;
-  category: string;
-  active: boolean;
-}
-
 export interface AddDecisionNoteInput {
   content: string;
   source_app?: string;
@@ -108,7 +99,7 @@ export interface DecisionResponse {
   client_id: number;
   subject_company_id: number;
   deal_id?: string;
-  context_key?: string;
+  context_category: string;
   decision_type: string;
   status: DecisionStatus;
   urgency?: DecisionUrgency;

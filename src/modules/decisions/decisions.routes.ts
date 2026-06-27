@@ -4,7 +4,6 @@ import {
   reviewDecisionHandler,
   getDecisionHandler,
   listDecisionsHandler,
-  listDecisionContextsHandler,
   addDecisionNoteHandler,
   listDecisionTypesHandler,
   createDecisionTypeHandler,
@@ -24,16 +23,15 @@ import { requireRole } from "../../middleware/role.middleware";
 
 const decisions = new Hono();
 
-// Reviewing a decision (approve/reject/override/escalate) is a judgment call —
-// restricted to roles the product spec describes as making/approving decisions.
-const reviewerRoles = requireRole("OWNER", "ADMIN", "APPROVER");
+// Reviewing a decision (approve/reject/override/escalate) is open to any active
+// member of the organization — both ADMIN and STAFF can make/approve decisions.
+const reviewerRoles = requireRole("ADMIN", "STAFF");
 // Decision types & context categories are organization-wide taxonomy — admin-managed,
 // per "Client admins can add unlimited custom types/categories" in the product spec.
-const adminRoles = requireRole("OWNER", "ADMIN");
+const adminRoles = requireRole("ADMIN");
 
 // Decisions
 decisions.get("/decisions", authenticate, listDecisionsHandler);
-decisions.get("/decisions/contexts", authenticate, listDecisionContextsHandler);
 decisions.post("/decisions", authenticate, createDecisionHandler);
 
 // Client Decision Types (custom + reserved) — must be registered before "/decisions/:id"
