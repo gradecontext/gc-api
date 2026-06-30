@@ -20,7 +20,7 @@ command = "npx prisma generate"
 [[hyperdrive]]
 binding = "HYPERDRIVE"
 id = "065f0fa15c2e496a820046f0535890c9"
-localConnectionString = "postgresql://postgres.nvfoymsokguqewgrkrna:WhTGWcsOkdDD434qDD5V0DAOd@aws-0-us-west-2.pooler.supabase.com:6543/postgres?pgbouncer=true&connect_timeout=15&pool_timeout=15&sslmode=require"
+localConnectionString = "postgresql://postgres.nvfoymsokguqewgrkrna:WhTGWcsOkdDD434qDD5V0DAOd@aws-0-us-west-2.pooler.supabase.com:5432/postgres?sslmode=require"
 
 # ─── Secrets ────────────────────────────────────────────────
 # NEVER put secrets in this file. Use one of:
