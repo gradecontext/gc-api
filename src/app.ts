@@ -93,10 +93,7 @@ export function buildApp() {
   app.route("/api/v1", eventsRoutes);
   app.route("/api/v1", aiReportsRoutes);
 
-  logger.info("Application configured", {
-    environment: env.NODE_ENV,
-    port: env.PORT,
-  });
+  logger.info("Application configured");
 
   return app;
 }

@@ -13,6 +13,7 @@
 
 import { PrismaClient } from "./generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 import { initPrisma } from "./db/client";
 import { buildApp } from "./app";
 
@@ -62,9 +63,13 @@ function ensureInitialized(workerEnv: WorkerEnv): void {
 
   populateProcessEnv(workerEnv);
 
-  const adapter = new PrismaPg({
+  const pool = new Pool({
     connectionString: workerEnv.HYPERDRIVE.connectionString,
+    max: 1,
+    connectionTimeoutMillis: 10_000,
+    idleTimeoutMillis: 0,
   });
+  const adapter = new PrismaPg(pool);
 
   const client = new PrismaClient({ adapter });
   initPrisma(client);
