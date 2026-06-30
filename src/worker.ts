@@ -71,7 +71,6 @@ function ensureInitialized(workerEnv: WorkerEnv): void {
     max: 1,
     connectionTimeoutMillis: 10_000,
     idleTimeoutMillis: 0,
-    ssl: { rejectUnauthorized: false },
   });
   const adapter = new PrismaPg(pool);
 
