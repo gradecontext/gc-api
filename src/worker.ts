@@ -63,11 +63,15 @@ function ensureInitialized(workerEnv: WorkerEnv): void {
 
   populateProcessEnv(workerEnv);
 
+  // Connect via DATABASE_URL (Supabase Supavisor pooler) directly.
+  // Hyperdrive is kept as a binding but bypassed here — its local proxy
+  // cannot reach the database. SSL is required for Supabase connections.
   const pool = new Pool({
-    connectionString: workerEnv.HYPERDRIVE.connectionString,
+    connectionString: workerEnv.DATABASE_URL,
     max: 1,
     connectionTimeoutMillis: 10_000,
     idleTimeoutMillis: 0,
+    ssl: { rejectUnauthorized: false },
   });
   const adapter = new PrismaPg(pool);
 
