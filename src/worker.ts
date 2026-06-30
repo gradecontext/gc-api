@@ -63,11 +63,11 @@ function ensureInitialized(workerEnv: WorkerEnv): void {
 
   populateProcessEnv(workerEnv);
 
-  // Connect via DATABASE_URL (Supabase Supavisor pooler) directly.
-  // Hyperdrive is kept as a binding but bypassed here — its local proxy
-  // cannot reach the database. SSL is required for Supabase connections.
+  // Hyperdrive exposes a local proxy (localhost:PORT) so pg can connect via
+  // standard TCP without leaving the Workers runtime. max:1 is correct for
+  // the stateless execution model — one connection per isolate.
   const pool = new Pool({
-    connectionString: workerEnv.DATABASE_URL,
+    connectionString: workerEnv.HYPERDRIVE.connectionString,
     max: 1,
     connectionTimeoutMillis: 10_000,
     idleTimeoutMillis: 0,
