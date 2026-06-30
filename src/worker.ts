@@ -18,7 +18,7 @@ import { initPrisma } from "./db/client";
 import { buildApp } from "./app";
 
 interface WorkerEnv {
-  HYPERDRIVE: Hyperdrive;
+  HYPERDRIVE?: Hyperdrive;
   [key: string]: unknown;
   DATABASE_URL: string;
   SUPABASE_URL: string;
@@ -63,11 +63,15 @@ function ensureInitialized(workerEnv: WorkerEnv): void {
 
   populateProcessEnv(workerEnv);
 
-  // Hyperdrive exposes a local proxy (localhost:PORT) so pg can connect via
-  // standard TCP without leaving the Workers runtime. max:1 is correct for
-  // the stateless execution model — one connection per isolate.
+  // Use Hyperdrive when bound (preferred — local proxy, faster).
+  // Fall back to DATABASE_URL for direct Supabase Supavisor connection.
+  const connectionString = workerEnv.HYPERDRIVE?.connectionString ?? workerEnv.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("No database connection: configure the HYPERDRIVE binding or set the DATABASE_URL secret");
+  }
+
   const pool = new Pool({
-    connectionString: workerEnv.HYPERDRIVE.connectionString,
+    connectionString,
     max: 1,
     connectionTimeoutMillis: 10_000,
     idleTimeoutMillis: 0,
