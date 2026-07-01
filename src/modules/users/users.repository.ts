@@ -205,8 +205,13 @@ export async function updateUser(id: number, data: UserUpdateData) {
 /**
  * Link an existing user to a Supabase auth account
  */
-export async function linkSupabaseAuth(userId: number, supabaseAuthId: string) {
-  return await prisma.user.update({
+export async function linkSupabaseAuth(
+  userId: number,
+  supabaseAuthId: string,
+  tx?: Prisma.TransactionClient,
+) {
+  const db = tx ?? prisma;
+  return await db.user.update({
     where: { id: userId },
     data: { supabaseAuthId },
     select: userWithMembershipsSelect,

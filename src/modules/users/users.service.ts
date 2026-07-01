@@ -26,6 +26,7 @@ import {
   findUserById,
   findUserByUserName,
   updateUser,
+  linkSupabaseAuth,
   UserCreateData,
   UserUpdateData,
 } from "./users.repository";
@@ -140,6 +141,13 @@ export async function createVerifiedUser(
       const existingByEmail = await findUserByEmail(trustedEmail, tx);
       if (existingByEmail) {
         user = existingByEmail;
+
+        // The row may predate this Supabase auth id (e.g. pre-created by
+        // email, or the Supabase account was recreated) — without this,
+        // the auth middleware's supabaseAuthId lookup would never find it.
+        if (existingByEmail.supabaseAuthId !== supabaseAuthId) {
+          user = await linkSupabaseAuth(existingByEmail.id, supabaseAuthId, tx);
+        }
       } else {
         const userName = await resolveUserNameForCreate(
           input.user_name,
