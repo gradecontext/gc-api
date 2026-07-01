@@ -188,12 +188,26 @@ export async function createVerifiedUser(
       resolvedClientId = existingClient.id;
       resolvedClient = formatClientResponse(existingClient);
     } else {
-      const domain = extractDomainFromEmail(trustedEmail);
-      const isPublicDomain = isPublicEmailDomain(domain);
+      const emailDomain = extractDomainFromEmail(trustedEmail);
+      const isPublicDomain = isPublicEmailDomain(emailDomain);
 
-      const existingByDomain = isPublicDomain
-        ? null
-        : await findClientByDomain(domain, tx);
+      // Prefer the caller-supplied domain (e.g. front-end prefills this from
+      // the creator's own email and asks for confirmation before
+      // submitting). Public/shared email domains are never used for
+      // matching or storage either way.
+      const providedDomain = clientInput.domain?.trim().toLowerCase();
+      const isProvidedDomainPublic = providedDomain
+        ? isPublicEmailDomain(providedDomain)
+        : false;
+
+      let existingByDomain =
+        providedDomain && !isProvidedDomainPublic
+          ? await findClientByDomain(providedDomain, tx)
+          : null;
+
+      if (!existingByDomain && !isPublicDomain && emailDomain !== providedDomain) {
+        existingByDomain = await findClientByDomain(emailDomain, tx);
+      }
 
       if (existingByDomain) {
         if (!existingByDomain.active) throw new Error("Client account is inactive");
@@ -201,10 +215,14 @@ export async function createVerifiedUser(
         resolvedClient = formatClientResponse(existingByDomain);
 
         logger.info("Matched existing client by domain", {
-          domain,
+          domain: existingByDomain.domain,
           clientId: resolvedClientId,
         });
       } else {
+        const newClientDomain = providedDomain
+          ? (isProvidedDomainPublic ? undefined : providedDomain)
+          : (isPublicDomain ? undefined : emailDomain);
+
         resolvedClient = await clientCreate(
           {
             client_name: clientInput.client_name!,
@@ -218,14 +236,14 @@ export async function createVerifiedUser(
             client_instagram: clientInput.client_instagram,
             settings: clientInput.settings,
           },
-          isPublicDomain ? undefined : domain,
+          newClientDomain,
           tx,
         );
         resolvedClientId = resolvedClient.id;
         isNewClient = true;
 
         logger.info("Created new client for user", {
-          domain: isPublicDomain ? "(public domain, not stored)" : domain,
+          domain: newClientDomain ?? "(public domain, not stored)",
           clientId: resolvedClientId,
           slug: resolvedClient.slug,
         });

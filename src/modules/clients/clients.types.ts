@@ -31,6 +31,12 @@ export interface CreateClientInput {
 export interface ClientInputForUser {
   client_id?: number;
   client_name?: string;
+  /**
+   * Explicit domain for a new client (e.g. front-end prefills this from the
+   * creator's own email and asks for confirmation). Falls back to the
+   * creator's email domain when omitted — see createVerifiedUser.
+   */
+  domain?: string;
   plan?: ClientPlan;
   details?: string;
   logo?: string;
