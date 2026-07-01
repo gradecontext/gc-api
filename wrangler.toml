@@ -21,7 +21,6 @@ command = "npx prisma generate"
 binding = "HYPERDRIVE"
 id = "f89a2e8e6a5742b6aa76645327c0e54c"
 localConnectionString = "postgresql://postgres.nvfoymsokguqewgrkrna:WhTGWcsOkdDD434qDD5V0DAOd@aws-1-us-west-2.pooler.supabase.com:6543/postgres"
-caching = { disabled = true }
 
 
 # ─── Secrets ────────────────────────────────────────────────
