@@ -126,7 +126,22 @@ export async function createVerifiedUser(
   const trustedEmail = supabaseEmail ?? input.email;
 
   // Check if this Supabase account already has a user record.
-  const existingUser = await findUserBySupabaseId(supabaseAuthId);
+  let existingUser = await findUserBySupabaseId(supabaseAuthId);
+
+  // Also check by email — a user record may have been pre-created, or may
+  // predate this Supabase auth id (e.g. the Supabase account was recreated).
+  // Repair that link right away, independent of the transaction below, so
+  // it persists even if client/membership resolution later fails or the
+  // caller already has a membership for this client (409) — the auth
+  // middleware's supabaseAuthId lookup must never be left stale.
+  if (!existingUser) {
+    const existingByEmail = await findUserByEmail(trustedEmail);
+    if (existingByEmail && existingByEmail.supabaseAuthId !== supabaseAuthId) {
+      existingUser = await linkSupabaseAuth(existingByEmail.id, supabaseAuthId);
+    } else if (existingByEmail) {
+      existingUser = existingByEmail;
+    }
+  }
 
   // Run everything in a transaction
   const result = await prisma.$transaction(async (tx) => {
@@ -137,41 +152,28 @@ export async function createVerifiedUser(
     if (existingUser) {
       user = existingUser;
     } else {
-      // Also check by email — a user record may have been pre-created
-      const existingByEmail = await findUserByEmail(trustedEmail, tx);
-      if (existingByEmail) {
-        user = existingByEmail;
+      const userName = await resolveUserNameForCreate(
+        input.user_name,
+        trustedEmail,
+        tx,
+      );
 
-        // The row may predate this Supabase auth id (e.g. pre-created by
-        // email, or the Supabase account was recreated) — without this,
-        // the auth middleware's supabaseAuthId lookup would never find it.
-        if (existingByEmail.supabaseAuthId !== supabaseAuthId) {
-          user = await linkSupabaseAuth(existingByEmail.id, supabaseAuthId, tx);
-        }
-      } else {
-        const userName = await resolveUserNameForCreate(
-          input.user_name,
-          trustedEmail,
-          tx,
-        );
-
-        const userData: UserCreateData = {
-          supabaseAuthId,
-          email: trustedEmail,
-          name: input.name,
-          title: input.title,
-          displayName: input.display_name,
-          userName,
-          imageUrl: input.image_url,
-          userImage: input.user_image,
-          userImageCover: input.user_image_cover,
-          userBioDetail: input.user_bio_detail,
-          userBioBrief: input.user_bio_brief,
-          gender: input.gender,
-        };
-        user = await createUser(userData, tx);
-        userCreated = true;
-      }
+      const userData: UserCreateData = {
+        supabaseAuthId,
+        email: trustedEmail,
+        name: input.name,
+        title: input.title,
+        displayName: input.display_name,
+        userName,
+        imageUrl: input.image_url,
+        userImage: input.user_image,
+        userImageCover: input.user_image_cover,
+        userBioDetail: input.user_bio_detail,
+        userBioBrief: input.user_bio_brief,
+        gender: input.gender,
+      };
+      user = await createUser(userData, tx);
+      userCreated = true;
     }
 
     // --- Resolve client ---
