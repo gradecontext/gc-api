@@ -9,13 +9,22 @@
  *
  * Uses the "worker" Prisma generator (WASM engine, runtime = "cloudflare")
  * so the query engine runs inside the V8 isolate.
+ *
+ * A fresh Pool/PrismaClient is created per request (see fetch() below)
+ * rather than cached as a module-level singleton. Workers isolates are
+ * reused across many requests; a single shared pool meant concurrent
+ * requests on the same isolate contended over one connection, causing
+ * intermittent "timeout exceeded when trying to connect" failures under
+ * load. Request-scoped clients (via runWithPrisma/AsyncLocalStorage in
+ * db/client.ts) avoid that contention.
  */
 
 import { PrismaClient } from "./generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
-import { initPrisma } from "./db/client";
+import { runWithPrisma } from "./db/client";
 import { buildApp } from "./app";
+import { logger } from "./utils/logger";
 
 interface WorkerEnv {
   HYPERDRIVE?: Hyperdrive;
@@ -56,34 +65,6 @@ function populateProcessEnv(workerEnv: WorkerEnv): void {
   }
 }
 
-let initialized = false;
-
-function ensureInitialized(workerEnv: WorkerEnv): void {
-  if (initialized) return;
-
-  populateProcessEnv(workerEnv);
-
-  // Use Hyperdrive when bound (preferred — local proxy, faster).
-  // Fall back to DATABASE_URL for direct Supabase Supavisor connection.
-  const connectionString = workerEnv.HYPERDRIVE?.connectionString ?? workerEnv.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("No database connection: configure the HYPERDRIVE binding or set the DATABASE_URL secret");
-  }
-
-  const pool = new Pool({
-    connectionString,
-    max: 1,
-    connectionTimeoutMillis: 10_000,
-    idleTimeoutMillis: 0,
-  });
-  const adapter = new PrismaPg(pool);
-
-  const client = new PrismaClient({ adapter });
-  initPrisma(client);
-
-  initialized = true;
-}
-
 const app = buildApp();
 
 export default {
@@ -92,7 +73,22 @@ export default {
     workerEnv: WorkerEnv,
     ctx: ExecutionContext,
   ): Promise<Response> {
-    ensureInitialized(workerEnv);
-    return app.fetch(request, workerEnv, ctx);
+    populateProcessEnv(workerEnv);
+
+    // Use Hyperdrive when bound (preferred — local proxy, faster).
+    // Fall back to DATABASE_URL for direct Supabase Supavisor connection.
+    const connectionString = workerEnv.HYPERDRIVE?.connectionString ?? workerEnv.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error("No database connection: configure the HYPERDRIVE binding or set the DATABASE_URL secret");
+    }
+
+    const pool = new Pool({ connectionString, connectionTimeoutMillis: 10_000 });
+    pool.on("error", (err) => {
+      logger.error("Postgres pool error", err instanceof Error ? err : new Error(String(err)));
+    });
+    const adapter = new PrismaPg(pool);
+    const client = new PrismaClient({ adapter });
+
+    return runWithPrisma(client, () => app.fetch(request, workerEnv, ctx));
   },
 };

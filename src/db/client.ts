@@ -1,12 +1,22 @@
 /**
- * Prisma database client — runtime-agnostic singleton
+ * Prisma database client — runtime-agnostic access point
  *
- * The actual PrismaClient is created by the entry point (server.ts or
- * worker.ts) and injected via initPrisma(). This keeps the db module
- * free of engine-specific imports so it works in both Node.js and
- * Cloudflare Workers without WASM/binary conflicts.
+ * src/server.ts (long-lived Node process) injects one client for the whole
+ * process via initPrisma() — safe there since there's no isolate reuse.
+ *
+ * src/worker.ts (Cloudflare Workers) instead scopes a fresh client to each
+ * request via runWithPrisma() + AsyncLocalStorage. A module-level singleton
+ * pool previously caused intermittent "timeout exceeded when trying to
+ * connect" failures under concurrent requests: Workers isolates are reused
+ * across many requests, and a single shared max:1 pg.Pool meant concurrent
+ * requests on the same isolate contended for one connection. Request-scoped
+ * clients avoid that contention entirely.
+ *
+ * This keeps the db module free of engine-specific imports so it works in
+ * both Node.js and Cloudflare Workers without WASM/binary conflicts.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import type { PrismaClient } from "@prisma/client";
 import { logger } from "../utils/logger";
 
@@ -14,12 +24,15 @@ import { logger } from "../utils/logger";
 // produce structurally identical but nominally different PrismaClient types.
 // We accept any compatible client instance here.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+const requestStorage = new AsyncLocalStorage<any>();
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _prisma: any;
 let _cleanup: (() => Promise<void>) | undefined;
 
 /**
- * Inject a ready-to-use PrismaClient.
- * Called by src/server.ts (binary engine) or src/worker.ts (WASM engine).
+ * Inject a ready-to-use PrismaClient for the lifetime of the process.
+ * Called by src/server.ts (binary engine).
  */
 export function initPrisma(
   client: unknown,
@@ -30,19 +43,31 @@ export function initPrisma(
 }
 
 /**
- * Lazy proxy — forwards every property access to the injected client.
- * Throws immediately if accessed before initPrisma() is called.
+ * Run `fn` with `client` as the active Prisma client for the duration of
+ * the async call chain — including anything awaited inside `fn`, even
+ * across concurrent requests on the same Workers isolate. Called once per
+ * request by src/worker.ts.
+ */
+export function runWithPrisma<T>(client: unknown, fn: () => T): T {
+  return requestStorage.run(client, fn);
+}
+
+/**
+ * Lazy proxy — forwards every property access to the active client:
+ * the request-scoped client set via runWithPrisma() if present, otherwise
+ * the process-wide client set via initPrisma().
  */
 export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
   get(_, prop) {
-    if (!_prisma) {
+    const client = requestStorage.getStore() ?? _prisma;
+    if (!client) {
       throw new Error(
-        "Prisma client not initialized. Call initPrisma() in the entry point before handling requests.",
+        "Prisma client not initialized. Call initPrisma() or runWithPrisma() before handling requests.",
       );
     }
-    const value = (_prisma as any)[prop];
+    const value = (client as any)[prop];
     if (typeof value === "function") {
-      return value.bind(_prisma);
+      return value.bind(client);
     }
     return value;
   },
