@@ -7,7 +7,7 @@
  */
 
 import { prisma } from '../../db/client';
-import { ClientPlan, Prisma } from '@prisma/client';
+import { PlanTier, Prisma } from '@prisma/client';
 import { logger } from '../../utils/logger';
 
 export interface ClientCreateData {
@@ -16,7 +16,7 @@ export interface ClientCreateData {
   domain?: string;
   apiKey: string;
   webhookSecret: string;
-  plan: ClientPlan;
+  plan: PlanTier;
   details?: string;
   logo?: string;
   coverImage?: string;

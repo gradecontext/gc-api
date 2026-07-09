@@ -226,7 +226,6 @@ export async function createVerifiedUser(
         resolvedClient = await clientCreate(
           {
             client_name: clientInput.client_name!,
-            plan: clientInput.plan,
             details: clientInput.details,
             logo: clientInput.logo,
             cover_image: clientInput.cover_image,

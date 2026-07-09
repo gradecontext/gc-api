@@ -4,7 +4,7 @@
  */
 
 import { prisma } from "../../db/client";
-import { ClientPlan } from "@prisma/client";
+import { PlanTier } from "@prisma/client";
 import { logger } from "../../utils/logger";
 
 const betaAccessSelect = {
@@ -40,7 +40,7 @@ export interface BetaAccessCreateData {
   companyName?: string;
   numberOfUsersRange?: string;
   source?: string;
-  planInterest?: ClientPlan;
+  planInterest?: PlanTier;
   notes?: string;
 }
 
@@ -49,7 +49,7 @@ export interface BetaAccessUpdateData {
   companyName?: string;
   numberOfUsersRange?: string;
   source?: string;
-  planInterest?: ClientPlan | null;
+  planInterest?: PlanTier | null;
   allowAccess?: boolean;
   approvedBy?: number | null;
   approvedAt?: Date | null;
@@ -89,13 +89,13 @@ export async function findBetaAccessByEmail(email: string) {
 
 export async function findBetaAccessEntries(filters: {
   allowAccess?: boolean;
-  planInterest?: ClientPlan;
+  planInterest?: PlanTier;
   skip?: number;
   take?: number;
 }) {
   const where: {
     allowAccess?: boolean;
-    planInterest?: ClientPlan;
+    planInterest?: PlanTier;
   } = {};
 
   if (filters.allowAccess !== undefined) where.allowAccess = filters.allowAccess;

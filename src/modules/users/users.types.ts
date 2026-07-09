@@ -3,7 +3,7 @@
  * Central type definitions for the users domain
  */
 
-import { Gender, UserRole, MembershipStatus, ClientPlan } from '@prisma/client';
+import { Gender, UserRole, MembershipStatus, PlanTier } from '@prisma/client';
 import { ClientInputForUser } from '../clients/clients.types';
 
 export type { Gender, UserRole, MembershipStatus };
@@ -25,7 +25,7 @@ export interface ClientSummary {
   client_linkedin: string | null;
   client_instagram: string | null;
   verified: boolean;
-  plan: ClientPlan;
+  plan: PlanTier;
   active: boolean;
 }
 

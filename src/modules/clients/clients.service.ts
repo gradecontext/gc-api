@@ -110,8 +110,11 @@ export function isPublicEmailDomain(domain: string): boolean {
  *
  * - Generates a slug from the name (appends random suffix on collision)
  * - Generates 12-char alphanumeric webhook_secret and api_key
- * - Defaults plan to STARTER when not specified
+ * - Always created on the FREE plan; trg_client_seed_subscription seeds a
+ *   matching FREE ClientSubscription row, which is the real source of truth
+ *   for billing (see src/modules/billing) — Client.plan is just a mirror
  *
+
  * Accepts an optional Prisma transaction client for atomicity.
  */
 export async function clientCreate(
@@ -129,7 +132,7 @@ export async function clientCreate(
 
   const webhookSecret = generateRandomKey(12);
   const apiKey = generateRandomKey(12);
-  const plan = input.plan ?? "STARTER";
+  const plan = "FREE" as const;
 
   const data: ClientCreateData = {
     name: input.client_name,

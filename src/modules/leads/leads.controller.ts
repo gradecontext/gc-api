@@ -13,7 +13,7 @@ import {
   updateLeadDetails,
 } from "./leads.service";
 
-const clientPlanValues = ["FREE", "STARTER", "PROFESSIONAL", "ENTERPRISE"] as const;
+const clientPlanValues = ["FREE", "GROWTH", "SCALE", "ENTERPRISE"] as const;
 const leadStatusValues = ["NEW", "CONTACTED", "PENDING", "APPROVED", "REJECTED", "CONVERTED"] as const;
 
 const createLeadSchema = z.object({

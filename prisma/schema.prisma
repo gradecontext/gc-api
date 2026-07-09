@@ -63,7 +63,7 @@ model Lead {
   companyName        String?     @map("company_name") @db.Text
   companySize        String?     @map("company_size") @db.Text
   companyWebsite     String?     @map("company_website") @db.Text
-  planInterest       ClientPlan? @map("plan_interest")
+  planInterest       PlanTier?   @map("plan_interest")
   source             String?     @db.Text
   message            String?     @db.Text
   contacted          Boolean     @default(false)
@@ -109,7 +109,7 @@ model Client {
   domain          String?
   apiKey          String?    @unique @map("api_key")
   webhookSecret   String?    @map("webhook_secret")
-  plan            ClientPlan @default(FREE)
+  plan            PlanTier   @default(FREE)
   active          Boolean    @default(true)
   verified        Boolean    @default(false)
   approved        Boolean    @default(false)
@@ -139,6 +139,7 @@ model Client {
   clientDecisionTypes     ClientDecisionType[]
   clientContextCategories ClientContextCategory[]
   aiDecisionReports       AIDecisionReport[]
+  subscription            ClientSubscription?
 
   @@index([slug])
   @@index([addedBy])
@@ -146,13 +147,17 @@ model Client {
   @@map("clients")
 }
 
-enum ClientPlan {
+// PlanTier is the single canonical "which plan" enum — used both as a
+// self-reported signal pre-signup (Lead/BetaAccessList.planInterest) and as
+// the client's actual plan (Client.plan, denormalized from ClientSubscription.plan
+// by the billing service — see ClientSubscription below).
+enum PlanTier {
   FREE
-  STARTER
-  PROFESSIONAL
+  GROWTH
+  SCALE
   ENTERPRISE
 
-  @@map("client_plan")
+  @@map("plan_tier")
 }
 
 // Users are identity records — a person who can belong to one or more
@@ -739,7 +744,7 @@ model BetaAccessList {
   companyName          String?     @map("company_name") @db.Text
   numberOfUsersRange   String?     @map("number_of_users_range") @db.Text
   source               String?     @db.Text
-  planInterest         ClientPlan? @map("plan_interest")
+  planInterest         PlanTier?   @map("plan_interest")
   allowAccess          Boolean     @default(false) @map("allow_access")
   approvedBy           Int?        @map("approved_by")
   approvedAt           DateTime?   @map("approved_at") @db.Timestamptz(6)
@@ -943,4 +948,62 @@ model ClientContextCategory {
   @@unique([clientId, category])
   @@index([clientId])
   @@map("client_context_categories")
+}
+
+// ============================================================
+// SUBSCRIPTION BILLING
+// ============================================================
+
+// ClientSubscription is the source of truth for seat-based billing.
+// One row per client, seeded FREE on client creation via
+// trg_client_seed_subscription (mirrors trg_client_seed_default_types).
+// Client.plan is kept as a denormalized mirror of this row's `plan`,
+// written only by the billing service — never set independently elsewhere.
+model ClientSubscription {
+  id                   String       @id @default(uuid()) @db.Uuid
+  clientId             Int          @unique @map("client_id")
+  plan                 PlanTier     @default(FREE)
+  status               SubStatus    @default(ACTIVE)
+
+  // Stripe references
+  stripeCustomerId     String?      @unique @map("stripe_customer_id")
+  stripeSubscriptionId String?      @unique @map("stripe_subscription_id")
+  stripePriceId        String?      @map("stripe_price_id")
+
+  // Seat tracking
+  seatCount            Int          @default(0) @map("seat_count")
+
+  // Billing cycle
+  billingCycle         BillingCycle @default(MONTHLY) @map("billing_cycle")
+
+  // Dates
+  currentPeriodStart   DateTime?    @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd     DateTime?    @map("current_period_end") @db.Timestamptz(6)
+  cancelAtPeriodEnd    Boolean      @default(false) @map("cancel_at_period_end")
+  trialEndsAt          DateTime?    @map("trial_ends_at") @db.Timestamptz(6)
+
+  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("client_subscriptions")
+}
+
+enum SubStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  TRIALING
+  PAUSED
+
+  @@map("sub_status")
+}
+
+enum BillingCycle {
+  MONTHLY
+  ANNUAL
+
+  @@map("billing_cycle")
 }

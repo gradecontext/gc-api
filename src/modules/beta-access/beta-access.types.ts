@@ -2,9 +2,9 @@
  * Beta Access List module types
  */
 
-import { ClientPlan } from "@prisma/client";
+import { PlanTier } from "@prisma/client";
 
-export type { ClientPlan };
+export type { PlanTier };
 
 export interface CreateBetaAccessInput {
   full_name: string;
@@ -12,7 +12,7 @@ export interface CreateBetaAccessInput {
   company_name?: string;
   number_of_users_range?: string;
   source?: string;
-  plan_interest?: ClientPlan;
+  plan_interest?: PlanTier;
   notes?: string;
 }
 
@@ -21,7 +21,7 @@ export interface UpdateBetaAccessInput {
   company_name?: string;
   number_of_users_range?: string;
   source?: string;
-  plan_interest?: ClientPlan | null;
+  plan_interest?: PlanTier | null;
   allow_access?: boolean;
   approved_by?: number | null;
   notes?: string;
@@ -34,7 +34,7 @@ export interface BetaAccessResponse {
   company_name: string | null;
   number_of_users_range: string | null;
   source: string | null;
-  plan_interest: ClientPlan | null;
+  plan_interest: PlanTier | null;
   allow_access: boolean;
   approved_by: number | null;
   approved_by_admin?: {
@@ -50,7 +50,7 @@ export interface BetaAccessResponse {
 
 export interface BetaAccessListQuery {
   allow_access?: boolean;
-  plan_interest?: ClientPlan;
+  plan_interest?: PlanTier;
   page?: number;
   limit?: number;
 }

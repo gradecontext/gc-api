@@ -16,6 +16,7 @@ import {
   TriggerReportInput,
   ListReportsQuery,
 } from './ai-reports.types';
+import { assertAiReportAllowed } from '../billing/billing.service';
 
 // ── Formatters ────────────────────────────────────────────────
 
@@ -177,6 +178,8 @@ export async function triggerReport(
     select: { name: true },
   });
   if (!client) throw new Error('Client not found');
+
+  await assertAiReportAllowed(clientId);
 
   // Create report row immediately (status = GENERATING)
   const report = await createReport({ clientId, categoryId: category.id, triggeredBy: userId });

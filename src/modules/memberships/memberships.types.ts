@@ -2,7 +2,7 @@
  * Membership module types
  */
 
-import { UserRole, MembershipStatus, ClientPlan } from "@prisma/client";
+import { UserRole, MembershipStatus, PlanTier } from "@prisma/client";
 
 export type { UserRole, MembershipStatus };
 
@@ -26,7 +26,7 @@ export interface MembershipDetailResponse {
     slug: string;
     domain: string | null;
     logo: string | null;
-    plan: ClientPlan;
+    plan: PlanTier;
     active: boolean;
   };
 }

@@ -3,9 +3,9 @@
  * Central type definitions for the clients domain
  */
 
-import { ClientPlan } from '@prisma/client';
+import { PlanTier } from '@prisma/client';
 
-export type { ClientPlan };
+export type { PlanTier };
 
 /**
  * Input for creating a client (used both in standalone client creation
@@ -13,7 +13,6 @@ export type { ClientPlan };
  */
 export interface CreateClientInput {
   client_name: string;
-  plan?: ClientPlan;
   details?: string;
   logo?: string;
   cover_image?: string;
@@ -37,7 +36,6 @@ export interface ClientInputForUser {
    * creator's email domain when omitted — see createVerifiedUser.
    */
   domain?: string;
-  plan?: ClientPlan;
   details?: string;
   logo?: string;
   cover_image?: string;
@@ -55,7 +53,7 @@ export interface ClientResponse {
   domain: string | null;
   api_key: string | null;
   webhook_secret: string | null;
-  plan: ClientPlan;
+  plan: PlanTier;
   active: boolean;
   verified: boolean;
   approved: boolean;

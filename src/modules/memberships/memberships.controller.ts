@@ -14,6 +14,7 @@ import {
   listClientMembers,
   listUserMemberships,
 } from "./memberships.service";
+import { SeatLimitExceededError } from "../billing/billing.types";
 
 const roleValues = ["ADMIN", "STAFF"] as const;
 const statusFilter = ["PENDING", "ACTIVE", "REJECTED"] as const;
@@ -96,6 +97,17 @@ export async function approveMembershipHandler(c: Context) {
     const membership = await approveMembership(membershipId, userId);
     return c.json({ success: true, message: "Membership approved", data: membership }, 200);
   } catch (error) {
+    if (error instanceof SeatLimitExceededError) {
+      return c.json(
+        {
+          error: "SeatLimitExceeded",
+          message: error.message,
+          currentPlan: error.currentPlan,
+          upgradeRequired: error.upgradeRequired,
+        },
+        402,
+      );
+    }
     return handleMembershipError(c, error, "approving membership");
   }
 }

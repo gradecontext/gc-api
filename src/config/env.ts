@@ -32,6 +32,15 @@ const envSchema = z.object({
   // Auth (API Key for B2B client authentication)
   API_KEY: z.string().optional(),
 
+  // Stripe (subscription billing) — optional; billing routes/webhook error
+  // clearly at call time when unset rather than failing app startup.
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_GROWTH_MONTHLY_PRICE_ID: z.string().optional(),
+  STRIPE_GROWTH_ANNUAL_PRICE_ID: z.string().optional(),
+  STRIPE_SCALE_MONTHLY_PRICE_ID: z.string().optional(),
+  STRIPE_SCALE_ANNUAL_PRICE_ID: z.string().optional(),
+
   // Logging
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
@@ -53,6 +62,12 @@ function parseEnv(): Env {
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     API_KEY: process.env.API_KEY,
+    STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+    STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+    STRIPE_GROWTH_MONTHLY_PRICE_ID: process.env.STRIPE_GROWTH_MONTHLY_PRICE_ID,
+    STRIPE_GROWTH_ANNUAL_PRICE_ID: process.env.STRIPE_GROWTH_ANNUAL_PRICE_ID,
+    STRIPE_SCALE_MONTHLY_PRICE_ID: process.env.STRIPE_SCALE_MONTHLY_PRICE_ID,
+    STRIPE_SCALE_ANNUAL_PRICE_ID: process.env.STRIPE_SCALE_ANNUAL_PRICE_ID,
     LOG_LEVEL: process.env.LOG_LEVEL,
   };
 

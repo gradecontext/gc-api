@@ -35,9 +35,6 @@ const clientInputSchema = z
     client_id: z.number().int().positive().optional(),
     client_name: z.string().min(1).optional(),
     domain: z.string().min(1).optional(),
-    plan: z
-      .enum(["FREE", "STARTER", "PROFESSIONAL", "ENTERPRISE"])
-      .optional(),
     details: z.string().optional(),
     logo: z.string().optional(),
     cover_image: z.string().optional(),

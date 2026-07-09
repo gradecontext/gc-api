@@ -4,7 +4,7 @@
  */
 
 import { prisma } from '../../db/client';
-import { LeadStatus, ClientPlan } from '@prisma/client';
+import { LeadStatus, PlanTier } from '@prisma/client';
 import { logger } from '../../utils/logger';
 
 const leadSelect = {
@@ -43,7 +43,7 @@ export interface LeadCreateData {
   companyName?: string;
   companySize?: string;
   companyWebsite?: string;
-  planInterest?: ClientPlan;
+  planInterest?: PlanTier;
   source?: string;
   message?: string;
 }
@@ -53,7 +53,7 @@ export interface LeadUpdateData {
   companyName?: string;
   companySize?: string;
   companyWebsite?: string;
-  planInterest?: ClientPlan | null;
+  planInterest?: PlanTier | null;
   source?: string;
   message?: string;
   contacted?: boolean;

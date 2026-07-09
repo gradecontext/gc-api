@@ -13,7 +13,7 @@ import {
   updateBetaAccessDetails,
 } from "./beta-access.service";
 
-const clientPlanValues = ["FREE", "STARTER", "PROFESSIONAL", "ENTERPRISE"] as const;
+const clientPlanValues = ["FREE", "GROWTH", "SCALE", "ENTERPRISE"] as const;
 
 const createBetaAccessSchema = z.object({
   full_name: z.string().min(1),

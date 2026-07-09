@@ -20,6 +20,7 @@ import {
   editSubjectCompany,
   removeSubjectCompany,
 } from "./decisions.service";
+import { FeatureLimitExceededError } from "../billing/billing.types";
 
 const createDecisionSchema = z.object({
   client_id: z.number().int().positive().optional(),
@@ -293,6 +294,9 @@ export async function createDecisionTypeHandler(c: Context) {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return c.json({ error: "Validation Error", message: "Invalid request body", details: error.errors }, 400);
+    }
+    if (error instanceof FeatureLimitExceededError) {
+      return c.json({ error: "FeatureLimitExceeded", message: error.message, feature: error.feature }, 402);
     }
     if (error instanceof Error && error.message.includes("Unique constraint")) {
       return c.json({ error: "Conflict", message: "A decision type with that value already exists for this client." }, 409);

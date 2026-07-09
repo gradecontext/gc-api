@@ -2,6 +2,7 @@ import { Context } from 'hono';
 import { z } from 'zod';
 import { logger } from '../../utils/logger';
 import { triggerReport, getReport, getReports, getPublicReport } from './ai-reports.service';
+import { FeatureLimitExceededError } from '../billing/billing.types';
 
 const triggerSchema = z.object({
   category_id: z.string().uuid(),
@@ -25,6 +26,9 @@ export async function triggerReportHandler(c: Context) {
     }
     if (error instanceof Error && error.message === 'Context category not found for this client') {
       return c.json({ error: 'Not Found', message: error.message }, 404);
+    }
+    if (error instanceof FeatureLimitExceededError) {
+      return c.json({ error: 'FeatureLimitExceeded', message: error.message, feature: error.feature }, 402);
     }
     logger.error('Error triggering AI report', error instanceof Error ? error : new Error(String(error)));
     throw error;

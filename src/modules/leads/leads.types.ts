@@ -2,9 +2,9 @@
  * Lead module types
  */
 
-import { LeadStatus, ClientPlan } from '@prisma/client';
+import { LeadStatus, PlanTier } from '@prisma/client';
 
-export type { LeadStatus, ClientPlan };
+export type { LeadStatus, PlanTier };
 
 export interface CreateLeadInput {
   email: string;
@@ -12,7 +12,7 @@ export interface CreateLeadInput {
   company_name?: string;
   company_size?: string;
   company_website?: string;
-  plan_interest?: ClientPlan;
+  plan_interest?: PlanTier;
   source?: string;
   message?: string;
 }
@@ -22,7 +22,7 @@ export interface UpdateLeadInput {
   company_name?: string;
   company_size?: string;
   company_website?: string;
-  plan_interest?: ClientPlan | null;
+  plan_interest?: PlanTier | null;
   source?: string;
   message?: string;
   contacted?: boolean;
@@ -39,7 +39,7 @@ export interface LeadResponse {
   company_name: string | null;
   company_size: string | null;
   company_website: string | null;
-  plan_interest: ClientPlan | null;
+  plan_interest: PlanTier | null;
   source: string | null;
   message: string | null;
   contacted: boolean;

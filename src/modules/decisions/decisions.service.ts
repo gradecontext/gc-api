@@ -28,6 +28,7 @@ import {
   DecisionUpdateData,
 } from './decisions.repository';
 import { prisma } from '../../db/client';
+import { assertCustomTypeAllowed } from '../billing/billing.service';
 import {
   CreateDecisionInput,
   ReviewDecisionInput,
@@ -396,6 +397,8 @@ export async function addDecisionType(
   clientId: number,
   input: CreateDecisionTypeInput
 ): Promise<ClientDecisionTypeItem> {
+  await assertCustomTypeAllowed(clientId);
+
   const row = await createClientDecisionType(clientId, {
     decisionType: input.decision_type,
     label: input.label,

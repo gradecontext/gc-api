@@ -20,6 +20,8 @@ import {
 import { createNotification } from "../notifications/notifications.repository";
 import { MembershipDetailResponse } from "./memberships.types";
 import { MembershipStatus, UserRole } from "@prisma/client";
+import { checkSeatLimit, syncSeatCount } from "../billing/billing.service";
+import { SeatLimitExceededError } from "../billing/billing.types";
 
 /**
  * Approve a pending membership.
@@ -37,6 +39,11 @@ export async function approveMembership(
 
   await assertCallerIsAdmin(actingUserId, membership.clientId);
 
+  const seatCheck = await checkSeatLimit(membership.clientId, 1);
+  if (!seatCheck.allowed) {
+    throw new SeatLimitExceededError(seatCheck.currentPlan, seatCheck.upgradeRequired, seatCheck.limit ?? 0);
+  }
+
   const updated = await prisma.$transaction(async (tx) => {
     const m = await updateMembershipStatus(membershipId, "ACTIVE", tx);
 
@@ -53,6 +60,8 @@ export async function approveMembership(
 
     return m;
   });
+
+  await syncSeatCount(membership.clientId);
 
   logger.info("Membership approved", {
     membershipId,
@@ -153,6 +162,10 @@ export async function removeMembership(
   }
 
   await deleteMembership(membershipId);
+
+  if (membership.status === "ACTIVE") {
+    await syncSeatCount(membership.clientId);
+  }
 
   logger.info("Membership removed", {
     membershipId,

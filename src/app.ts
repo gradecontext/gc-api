@@ -25,6 +25,8 @@ import { contactRoutes } from "./modules/contact/contact.routes";
 import { betaAccessRoutes } from "./modules/beta-access/beta-access.routes";
 import { eventsRoutes } from "./modules/events/events.routes";
 import { aiReportsRoutes } from "./modules/ai-reports/ai-reports.routes";
+import { billingRoutes } from "./modules/billing/billing.routes";
+import { billingWebhookRoutes } from "./modules/billing/billing.webhook";
 
 export function buildApp() {
   const app = new Hono();
@@ -92,6 +94,8 @@ export function buildApp() {
   app.route("/api/v1", betaAccessRoutes);
   app.route("/api/v1", eventsRoutes);
   app.route("/api/v1", aiReportsRoutes);
+  app.route("/api/v1", billingRoutes);
+  app.route("/api/v1", billingWebhookRoutes);
 
   logger.info("Application configured");
 
