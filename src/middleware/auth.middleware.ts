@@ -48,6 +48,14 @@ async function resolveClientApiKey(apiKey: string): Promise<number | null> {
   return client?.id ?? null;
 }
 
+async function resolveClientMcpApiKey(mcpApiKey: string): Promise<number | null> {
+  const client = await prisma.client.findUnique({
+    where: { mcpApiKey },
+    select: { id: true },
+  });
+  return client?.id ?? null;
+}
+
 async function resolveSupabaseUser(
   supabaseAuthId: string,
 ): Promise<{ userId: number } | null> {
@@ -177,6 +185,34 @@ export const authenticate: MiddlewareHandler = async (c, next) => {
   logger.warn("Authentication failed");
   return c.json(
     { error: "Unauthorized", message: "Valid API key or session token is required" },
+    401,
+  );
+};
+
+/**
+ * MCP-only authentication middleware.
+ *
+ * Deliberately narrower than `authenticate`: checks the client's mcpApiKey
+ * only — no master API_KEY bypass, no Supabase JWT path. This is what keeps
+ * the credential meaningfully scoped: a general-purpose apiKey (or the
+ * master key) must NOT grant MCP access, or issuing a separate mcpApiKey
+ * would buy nothing. Always resolves to exactly one client, or rejects.
+ */
+export const authenticateMcp: MiddlewareHandler = async (c, next) => {
+  const key = extractApiKey(c) ?? extractBearerToken(c);
+
+  if (key) {
+    const clientId = await resolveClientMcpApiKey(key);
+    if (clientId) {
+      c.set("clientId", clientId);
+      logger.debug("MCP API key authenticated", { clientId });
+      return next();
+    }
+  }
+
+  logger.warn("MCP authentication failed");
+  return c.json(
+    { error: "Unauthorized", message: "A valid MCP API key is required (X-API-Key header)." },
     401,
   );
 };

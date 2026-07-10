@@ -13,6 +13,7 @@ import {
   createClientRecord,
   findClientBySlug,
   findClientsByName,
+  findClientMcpApiKey,
   ClientCreateData,
 } from "./clients.repository";
 import { CreateClientInput, ClientResponse } from "./clients.types";
@@ -132,6 +133,13 @@ export async function clientCreate(
 
   const webhookSecret = generateRandomKey(12);
   const apiKey = generateRandomKey(12);
+  // Separate, narrowly-scoped credential for the MCP server (src/modules/mcp) —
+  // deliberately distinct from apiKey so an LLM client's local config never
+  // holds the same key as REST/webhook integrations, and revoking MCP access
+  // doesn't require rotating apiKey everywhere else. Prefixed so a leaked key
+  // is identifiable at a glance (matches the mcp_ prefix convention MCP clients
+  // and secret scanners commonly key off of).
+  const mcpApiKey = `mcp_${generateRandomKey(24)}`;
   const plan = "FREE" as const;
 
   const data: ClientCreateData = {
@@ -139,6 +147,7 @@ export async function clientCreate(
     slug: finalSlug,
     domain: domain ?? undefined,
     apiKey,
+    mcpApiKey,
     webhookSecret,
     plan,
     details: input.details,
@@ -183,6 +192,16 @@ export async function searchClientsByName(
 }
 
 /**
+ * Fetch the client's MCP API key for display in settings (e.g. "MCP
+ * Integration" — copy-to-clipboard, non-editable). Read-only by design:
+ * there is no rotate/update path yet.
+ */
+export async function getClientMcpApiKey(clientId: number): Promise<string | null> {
+  const client = await findClientMcpApiKey(clientId);
+  return client?.mcpApiKey ?? null;
+}
+
+/**
  * Format a database client record to the API response shape.
  */
 export function formatClientResponse(
@@ -194,6 +213,7 @@ export function formatClientResponse(
     slug: client.slug,
     domain: client.domain,
     api_key: client.apiKey,
+    mcp_api_key: client.mcpApiKey,
     webhook_secret: client.webhookSecret,
     plan: client.plan,
     active: client.active,

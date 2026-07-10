@@ -108,6 +108,7 @@ model Client {
   slug            String     @unique
   domain          String?
   apiKey          String?    @unique @map("api_key")
+  mcpApiKey       String?    @unique @map("mcp_api_key")
   webhookSecret   String?    @map("webhook_secret")
   plan            PlanTier   @default(FREE)
   active          Boolean    @default(true)

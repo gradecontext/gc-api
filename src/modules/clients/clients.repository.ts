@@ -15,6 +15,7 @@ export interface ClientCreateData {
   slug: string;
   domain?: string;
   apiKey: string;
+  mcpApiKey: string;
   webhookSecret: string;
   plan: PlanTier;
   details?: string;
@@ -33,6 +34,7 @@ export const clientSelect = {
   slug: true,
   domain: true,
   apiKey: true,
+  mcpApiKey: true,
   webhookSecret: true,
   plan: true,
   active: true,
@@ -69,6 +71,7 @@ export async function createClientRecord(
       slug: data.slug,
       domain: data.domain ?? null,
       apiKey: data.apiKey,
+      mcpApiKey: data.mcpApiKey,
       webhookSecret: data.webhookSecret,
       plan: data.plan,
       details: data.details ?? null,
@@ -109,6 +112,21 @@ export async function findClientByDomain(
   return await db.client.findFirst({
     where: { domain },
     select: clientSelect,
+  });
+}
+
+/**
+ * Fetch just the MCP API key for a client — deliberately minimal (not the
+ * full clientSelect) since this backs a single-purpose settings read.
+ */
+export async function findClientMcpApiKey(
+  clientId: number,
+  tx?: Prisma.TransactionClient
+) {
+  const db = tx ?? prisma;
+  return await db.client.findUnique({
+    where: { id: clientId },
+    select: { mcpApiKey: true },
   });
 }
 

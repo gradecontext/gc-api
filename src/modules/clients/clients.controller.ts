@@ -5,7 +5,7 @@
 
 import { Context } from "hono";
 import { logger } from "../../utils/logger";
-import { searchClientsByName } from "./clients.service";
+import { searchClientsByName, getClientMcpApiKey } from "./clients.service";
 
 export async function searchClientsByNameHandler(c: Context) {
   try {
@@ -41,6 +41,23 @@ export async function searchClientsByNameHandler(c: Context) {
     );
   } catch (error) {
     logger.error("Error searching clients by name", error instanceof Error ? error : new Error(String(error)));
+    throw error;
+  }
+}
+
+// Backs the "MCP Integration" settings panel — read-only, copy-to-clipboard.
+// No rotate/update path yet.
+export async function getMcpApiKeyHandler(c: Context) {
+  try {
+    const clientId = c.get("clientId") as number | undefined;
+    if (!clientId) {
+      return c.json({ error: "Bad Request", message: "Client context required." }, 400);
+    }
+
+    const mcpApiKey = await getClientMcpApiKey(clientId);
+    return c.json({ mcp_api_key: mcpApiKey }, 200);
+  } catch (error) {
+    logger.error("Error fetching MCP API key", error instanceof Error ? error : new Error(String(error)));
     throw error;
   }
 }

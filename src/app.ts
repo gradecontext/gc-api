@@ -27,6 +27,7 @@ import { eventsRoutes } from "./modules/events/events.routes";
 import { aiReportsRoutes } from "./modules/ai-reports/ai-reports.routes";
 import { billingRoutes } from "./modules/billing/billing.routes";
 import { billingWebhookRoutes } from "./modules/billing/billing.webhook";
+import { mcpRoutes } from "./modules/mcp/mcp.routes";
 
 export function buildApp() {
   const app = new Hono();
@@ -96,6 +97,9 @@ export function buildApp() {
   app.route("/api/v1", aiReportsRoutes);
   app.route("/api/v1", billingRoutes);
   app.route("/api/v1", billingWebhookRoutes);
+  // Not under /api/v1 — MCP clients (Claude Desktop/Code) configure one bare
+  // server URL, not a REST-prefixed path.
+  app.route("/", mcpRoutes);
 
   logger.info("Application configured");
 

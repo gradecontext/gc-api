@@ -346,6 +346,55 @@ Status flow: `GENERATING` → `COMPLETED` / `FAILED`
 
 ---
 
+## MCP Server (Report Consumption Surface)
+
+Where the Chrome Extension and REST API are **capture** surfaces (decisions
+flowing in), the MCP server is the one **consumption** surface (compiled
+context flowing out) — it lets an LLM client (Claude Code, Claude Desktop,
+Cursor, ChatGPT, etc.) pull a client's AI Decision Reports directly instead
+of a human copy-pasting `decision.md` into a prompt.
+
+Mounted at `/mcp` (Streamable HTTP transport, stateless — a fresh MCP
+server + transport is built per request), **not** under `/api/v1` — MCP
+clients configure one bare server URL, not a REST-prefixed path.
+
+Read-only, by design: three tools, all backed by the same client-scoped
+service functions the REST API already uses (`getContextCategories`,
+`getReports`, `getReport`) —
+
+* `list_context_categories` — this client's context categories
+* `list_ai_reports` — report metadata, filterable by `category_id`/`status`
+* `get_ai_report` — one report's full markdown `content` by id
+
+No tool can trigger report generation or touch raw decisions. Report
+generation stays dashboard/API-triggered only (see AI Decision Reports
+above) — there is no cron job yet.
+
+### Authentication — `mcpApiKey`, a credential separate from `apiKey`
+
+Every client gets a second, independent secret generated at creation
+alongside the existing `apiKey`: `mcpApiKey` (`Client.mcpApiKey`, prefixed
+`mcp_` for at-a-glance identifiability). The two credentials are
+**deliberately non-interchangeable**, enforced by using entirely separate
+auth middleware:
+
+* `authenticate` (general REST API, `/api/v1/*`) resolves `apiKey` only —
+  an `mcpApiKey` is rejected here (401).
+* `authenticateMcp` (`/mcp` only) resolves `mcpApiKey` only — the general
+  `apiKey`, and even the master `API_KEY`, are rejected here (401/400). MCP
+  access is inherently single-tenant; there's no sensible "which client's
+  reports" answer for a non-client-scoped key.
+
+This means leaking an LLM client's local MCP config can't be used against
+the REST API, and revoking MCP access never requires rotating the key every
+other integration (webhooks, CRM sync) depends on.
+
+`GET /clients/mcp-key` (ADMIN role, `authenticate`) exposes the key for
+display in the dashboard's "MCP Integration" settings panel — read-only,
+copy-to-clipboard. There is no rotate/regenerate endpoint yet.
+
+---
+
 ## Client Subscription (Billing)
 
 Every client has exactly one `ClientSubscription` — seeded `FREE` / `ACTIVE`
@@ -465,6 +514,10 @@ Authentication supports two strategies:
 
 When a JWT user belongs to multiple clients, pass `X-Client-Id: <id>` to select context.
 
+The MCP server (`/mcp`, not under `/api/v1`) uses a third, separate scheme —
+`X-API-Key: <mcpApiKey>` — that is **not** interchangeable with the
+`X-API-Key: <apiKey>` used above. See "MCP Server" under Domain Concepts.
+
 ## Current Endpoints
 
 ### Users
@@ -510,6 +563,11 @@ When a JWT user belongs to multiple clients, pass `X-Client-Id: <id>` to select 
 | POST | `/ai-reports/generate` | Trigger report generation for a category |
 | GET | `/ai-reports/:id` | Fetch a report including full `content` markdown |
 
+### Clients (admin)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/clients/mcp-key` | Fetch this client's `mcpApiKey` for display in dashboard settings (ADMIN role only) |
+
 ### Events
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -538,6 +596,11 @@ When a JWT user belongs to multiple clients, pass `X-Client-Id: <id>` to select 
 | Method | Path | Purpose |
 |--------|------|---------|
 | POST | `/webhooks/stripe` | Stripe event ingestion — signature-verified, no `authenticate` middleware (Stripe itself is the caller) |
+
+### MCP Server (not under `/api/v1`)
+| Method | Path | Purpose |
+|--------|------|---------|
+| ALL | `/mcp` | Streamable HTTP MCP endpoint — read-only tools over compiled AI Decision Reports; `authenticateMcp` (`mcpApiKey` only). See "MCP Server" under Domain Concepts. |
 
 ## Subject Company Identity
 

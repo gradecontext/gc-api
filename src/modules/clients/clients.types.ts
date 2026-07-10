@@ -52,6 +52,7 @@ export interface ClientResponse {
   slug: string;
   domain: string | null;
   api_key: string | null;
+  mcp_api_key: string | null;
   webhook_secret: string | null;
   plan: PlanTier;
   active: boolean;
