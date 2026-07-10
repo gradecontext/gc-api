@@ -94,6 +94,7 @@ Clients own:
 * Contexts
 * Events
 * AI Decision Reports
+* A Subscription (billing — see below)
 
 ---
 
@@ -345,6 +346,40 @@ Status flow: `GENERATING` → `COMPLETED` / `FAILED`
 
 ---
 
+## Client Subscription (Billing)
+
+Every client has exactly one `ClientSubscription` — seeded `FREE` / `ACTIVE`
+automatically on account creation via a DB trigger (`trg_client_seed_subscription`,
+same pattern as the decision-type/context-category seed trigger).
+
+Plans:
+
+* `FREE` — up to 3 active members, no Stripe subscription
+* `GROWTH` — 4–15 active members, $15/seat/month ($150/seat/year)
+* `SCALE` — 16–50 active members, $12/seat/month ($120/seat/year)
+* `ENTERPRISE` — 50+ members, custom pricing, handled outside Stripe (manual flag, no self-serve checkout)
+
+Seats are billed against **active memberships only** — pending/rejected
+memberships never count, and Growth/Scale each have a seat-count minimum
+charge (4 and 16 seats respectively) so a client can't under-report seats to
+pay less than their plan's floor.
+
+Hitting a plan's seat or feature limit blocks the action with a 402 and an
+upgrade hint (`SeatLimitExceeded` / `FeatureLimitExceeded`) — ContextGrade
+never auto-upgrades or auto-downgrades a client. Every plan change is an
+explicit action: a checkout, a cancellation, or a Stripe webhook telling us
+something changed.
+
+`Client.plan` is a denormalized mirror of `ClientSubscription.plan`, kept in
+sync only by the billing service, so legacy consumers (`/users/me`,
+membership responses) don't need a join. Nothing else should ever write
+`Client.plan` directly.
+
+See `BILLING.md` for full detail: feature flags, enforcement points, Stripe
+webhook handling, and setup troubleshooting.
+
+---
+
 # Architectural Principles
 
 ## Event Sourcing Mindset
@@ -487,6 +522,22 @@ When a JWT user belongs to multiple clients, pass `X-Client-Id: <id>` to select 
 | POST | `/decisions/subject-companies` | Register a new source (admin only) |
 | PUT | `/decisions/subject-companies/:subjectCompanyId` | Update a source (admin only) |
 | DELETE | `/decisions/subject-companies/:subjectCompanyId` | Deactivate a source (admin only — soft delete) |
+
+### Billing (per-client, ADMIN role only)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/billing` | Current subscription, seat count/limit, feature flags |
+| GET | `/billing/plans` | Full plan catalog with pricing + feature flags |
+| POST | `/billing/checkout` | Create a Stripe Checkout session for GROWTH/SCALE |
+| GET | `/billing/portal` | Create a Stripe Billing Portal session |
+| GET | `/billing/preview` | Preview prorated cost of a plan/seat change |
+| POST | `/billing/cancel` | Schedule cancellation at period end |
+| POST | `/billing/reactivate` | Undo a scheduled cancellation |
+
+### Webhooks
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/webhooks/stripe` | Stripe event ingestion — signature-verified, no `authenticate` middleware (Stripe itself is the caller) |
 
 ## Subject Company Identity
 

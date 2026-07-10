@@ -51,6 +51,8 @@ Defined in `billing.types.ts` (`PLAN_CONFIG`). A feature is either `true`/`false
 
 `syncSeatCount(clientId)` recomputes `ClientSubscription.seatCount` from active memberships and is called after `approveMembership` and after `removeMembership` (when the removed membership was ACTIVE). It also nudges the Stripe subscription's `quantity` to match, if one exists — that's a billing-accuracy update, not a plan change, so it's exempt from the "no auto-upgrade" rule below.
 
+**The Stripe-billed quantity is always floored at the plan's seat minimum** (4 for GROWTH, 16 for SCALE) — `startCheckout`, `syncSeatCount`, and `previewPlanChange` all apply `Math.max(planMinimum, actualActiveSeats)` before talking to Stripe. Without this, a client could subscribe to SCALE and then shrink their team to dodge the $192/mo floor (2 seats × $12 = $24 instead of the guaranteed minimum). `ClientSubscription.seatCount` in the DB still reflects *actual* usage (e.g. "2 of 16 seats used" in `GET /billing`) — only the number sent to Stripe is floored.
+
 **No automatic plan upgrades or downgrades.** Every plan change is an explicit action: a user hits checkout, cancels, or Stripe tells us something changed via webhook. Hitting a seat/feature limit blocks the action with a 402 and an `upgradeRequired` hint — it never silently upgrades anyone.
 
 ## Seeding
@@ -70,6 +72,8 @@ Every new client gets a `FREE`/`ACTIVE` `ClientSubscription` row automatically v
 
 Required env vars (`.env.example`): `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_GROWTH_MONTHLY_PRICE_ID`, `STRIPE_GROWTH_ANNUAL_PRICE_ID`, `STRIPE_SCALE_MONTHLY_PRICE_ID`, `STRIPE_SCALE_ANNUAL_PRICE_ID`. All optional at boot — billing routes/webhook return a `503 Not Configured` error at call time if unset, rather than failing app startup.
 
+**Stale `stripeCustomerId` self-healing.** A stored `ClientSubscription.stripeCustomerId` can go stale — the Stripe environment behind `STRIPE_SECRET_KEY` changed (switched sandboxes, reset test data), and the id simply no longer resolves. `billing.stripe.ts`'s `customerExists()` + `billing.service.ts`'s `getVerifiedStripeCustomerId()` check this before trusting a saved id: `startCheckout` transparently clears it and creates a fresh customer; `startBillingPortal`/`previewPlanChange` clear it and surface the existing "No billing account found for this client" 404 instead of a raw 500. Every call site that touches `stripeCustomerId` goes through this helper — don't read `subscription.stripeCustomerId` directly when adding new Stripe-facing code.
+
 ## API
 
 All under `/api/v1/billing`, behind `authenticate` + `requireRole("ADMIN")` (this codebase's membership model only has `ADMIN`/`STAFF` — no `OWNER` — so `ADMIN` is the gate):
@@ -83,6 +87,16 @@ All under `/api/v1/billing`, behind `authenticate` + `requireRole("ADMIN")` (thi
 | GET | `/billing/preview?plan=&seat_count=` | Preview the prorated cost of a plan/seat change |
 | POST | `/billing/cancel` | Schedule cancellation at period end |
 | POST | `/billing/reactivate` | Undo a scheduled cancellation |
+
+## Setup / troubleshooting
+
+Only GROWTH and SCALE need real Stripe Products — create two Products ("Growth", "Scale"), each with a **monthly** and an **annual** recurring Price (4 prices total), and copy each Price's id into the matching `.env` var. Don't create anything for FREE or ENTERPRISE.
+
+Common setup mistakes, both of which surface as a Stripe error on `POST /billing/checkout` rather than a config-time failure:
+
+- **`No such price: 'prod_...'`** — a Product id was pasted into a `STRIPE_*_PRICE_ID` var instead of a Price id. Every Stripe object type has its own id prefix (`prod_` = Product, `price_` = Price) — a Product can have several Prices attached, each with its own `price_...` id. In the Dashboard, click into the specific price row under the product's Pricing section (not the product title) to get the right id.
+- **`No such customer: 'cus_...'`** — a `ClientSubscription.stripeCustomerId` saved under one Stripe key/sandbox is being used against a different one (keys, webhook secret, and price ids must all come from the *same* sandbox/mode). Since this is self-healing (see above), retrying the request is usually enough; if not, clear the client's `stripeCustomerId`/`stripeSubscriptionId` manually.
+- **Webhook signature failures** — the Stripe CLI (`stripe listen --forward-to <host>/api/v1/webhooks/stripe`) and any Dashboard-registered webhook endpoint are scoped to whichever sandbox/mode you're logged into; make sure `STRIPE_WEBHOOK_SECRET` came from the same one currently referenced by `STRIPE_SECRET_KEY`.
 
 ## What this deliberately does not do
 
